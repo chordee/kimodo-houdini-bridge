@@ -236,7 +236,7 @@ Load the NPZ (Docker `/workspace/output/` maps to `./output/` on the host):
 ```python
 import numpy as np
 
-host_path = data["npz_path"].replace("/workspace/output", "D:/dev/kimodo/output")
+host_path = data["npz_path"].replace("/workspace/output", "/path/to/kimodo/output")
 motion = np.load(host_path)
 print(motion["posed_joints"].shape)  # (90, 77, 3)
 ```
@@ -249,7 +249,7 @@ Generate the HDA file using hython (no Houdini GUI required):
 
 ```bash
 # From the kimodo-houdini-bridge repo root
-hython scripts/create_hda.py "D:/dev/kimodo/output/dev_reference.npz" "D:/dev/kimodo/output"
+hython scripts/create_hda.py "/path/to/kimodo/output/dev_reference.npz" "/path/to/kimodo/output"
 # Output: kimodo_motion.hda
 ```
 

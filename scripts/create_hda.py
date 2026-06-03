@@ -70,7 +70,7 @@ posed      = data["posed_joints"]    # (T, 77, 3)
 local_rots = data["local_rot_mats"]  # (T, 77, 3, 3)
 T          = posed.shape[0]
 
-frame = int(hou.frame()) - 1
+frame = hda_node.parm("frame_ref").eval() - 1
 frame = max(0, min(frame, T - 1))
 
 frame_pos  = posed[frame]
@@ -101,7 +101,7 @@ resp = requests.post(
     json={
         "prompt":   node.parm("prompt").eval(),
         "duration": node.parm("duration").eval(),
-        "model":    node.parm("model").eval(),
+        "model":    node.parm("model").evalAsString(),
     },
     timeout=300,
 )

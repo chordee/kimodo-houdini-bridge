@@ -28,16 +28,21 @@ Polyline primitives connect each parent-child pair for bone visualization.
 | **output0** | Animated skeleton — rebuilds every frame from the NPZ file | Yes (`$F`) |
 | **output1** | T-pose (rest) skeleton — static, does not depend on the NPZ | No |
 
-Both outputs carry the same point attributes:
+World rotations are stored in Houdini's row-vector convention (transposed from
+Kimodo's column-vector matrices), so both outputs are consistent and ready for KineFX.
+
+**output0 (animated)** carries:
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
 | `name` | string | Joint name (e.g. `Hips`, `LeftArm`) |
+| `path` | string | Full hierarchy path (e.g. `/Hips/Spine1/Spine2`) |
 | `parent_id` | int | Parent joint index; -1 for root (`Hips`) |
-| `localtransform` | float[16] | Local rotation matrix + position (row-major 4×4) |
+| `transform` | float[9] | World-space rotation (row-major 3×3) |
+| `localtransform` | float[16] | Local 4×4 transform relative to parent (row-major) |
 
-Output0: `localtransform` carries the per-frame local rotation and world position.  
-Output1: all `localtransform` are identity; joint positions are the SOMA77 neutral pose from Kimodo's skeleton definition.
+**output1 (T-pose)** carries `name` and `transform` (float[9] world-space rotation);
+joint positions are the SOMA77 neutral pose from Kimodo's skeleton definition.
 
 Connect output0 to **Rig Pose SOP** for KineFX rig binding. Use output1 as the rest skeleton input for **Bone Capture** or **Skin SOP**.
 
@@ -90,19 +95,14 @@ docker compose -f docker-compose.hybrid.yaml up api -d
 
 ## Rebuilding the HDA
 
-If you need to regenerate the HDA (e.g. after modifying `scripts/sop_cook.py`):
+If you need to regenerate the HDA (e.g. after editing the cook scripts embedded in `scripts/create_hda.py`):
 
 ```bash
-# 1. Rebuild the packed HDA
+# 1. Rebuild the packed HDA at the repo root
 hython scripts/create_hda.py "<npz_default>" "<host_output_dir>"
 
-# 2. Add the help card and save to hda/
+# 2. Add the help card and save the unpacked HDA to hda/
 hython scripts/_add_help.py
-
-# 3. Unpack to VCS-friendly format
-mkdir hda/kimodo_motion.hda
-hotl -t hda/kimodo_motion.hda hda/kimodo_motion_packed.hda
-rm hda/kimodo_motion_packed.hda
 ```
 
 ---

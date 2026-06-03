@@ -79,6 +79,22 @@ def job_status(job_id: str) -> JobStatus:
     )
 
 
+@app.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str) -> JobStatus:
+    if job_id not in _jobs:
+        raise HTTPException(404, f"Job {job_id} not found.")
+    job = _jobs[job_id]
+    if job["status"] not in ("queued", "running"):
+        return job_status(job_id)
+    proc = job.get("proc")
+    if proc and proc.returncode is None:
+        proc.terminate()
+    job["status"] = "cancelled"
+    job["elapsed"] = round(_time.monotonic() - job.get("started_at", _time.monotonic()), 1)
+    log.info("[CANCEL] %s", job_id[:8])
+    return job_status(job_id)
+
+
 async def _run_job(job_id: str, req: GenerateRequest) -> None:
     job = _jobs[job_id]
     job["status"] = "running"
@@ -111,6 +127,7 @@ async def _run_job(job_id: str, req: GenerateRequest) -> None:
         stderr=asyncio.subprocess.PIPE,
         env=env,
     )
+    job["proc"] = proc
     stdout, stderr = await proc.communicate()
     elapsed = _time.monotonic() - job["started_at"]
 

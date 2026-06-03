@@ -112,6 +112,7 @@ except Exception as e:
     node.parm("status").set(f"Error: {e}")
 else:
     job_id = resp.json()["job_id"]
+    node.parm("job_id").set(job_id)
     node.parm("status").set(f"Queued ({job_id[:8]}...)")
 
     def _poll():
@@ -131,16 +132,18 @@ else:
                 npz = data["npz_path"].replace("/workspace/output", host_output)
                 node.parm("status").set(f"Done{elapsed_str}")
                 node.parm("npz_path").set(npz)
+                node.parm("job_id").set("")
                 node.cook(force=True)
                 hou.ui.displayMessage(
                     f"Generated {data['frames']} frames ({data['joints']} joints){elapsed_str}.",
                     title="Kimodo",
                 )
                 break
-            elif status == "failed":
-                msg = data.get("error", "Unknown error")
-                node.parm("status").set(f"Failed: {msg[:60]}")
-                hou.ui.displayMessage(f"Generation failed:\n{msg}", severity=hou.severityType.Error, title="Kimodo")
+            elif status in ("failed", "cancelled"):
+                msg = data.get("error") or status.capitalize()
+                node.parm("status").set(f"{status.capitalize()}: {msg[:60]}" if data.get("error") else status.capitalize())
+                if status == "failed":
+                    hou.ui.displayMessage(f"Generation failed:\n{msg}", severity=hou.severityType.Error, title="Kimodo")
                 break
             else:
                 node.parm("status").set(f"Running...{elapsed_str}")
@@ -205,9 +208,34 @@ ptg.append(hou.MenuParmTemplate(
     ("Kimodo-SOMA-RP-v1.1", "Kimodo-SOMA-SEED-v1.1", "Kimodo-SOMA-RP-v1"),
     default_value=0,
 ))
+_CANCEL_CB = r"""
+import requests, hou
+
+node   = kwargs["node"]
+url    = node.parm("server_url").eval().rstrip("/")
+job_id = node.parm("job_id").eval()
+if not job_id:
+    hou.ui.displayMessage("No active job to cancel.", title="Kimodo")
+else:
+    try:
+        r = requests.post(f"{url}/jobs/{job_id}/cancel", timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
+    else:
+        node.parm("status").set("Cancelled")
+        node.parm("job_id").set("")
+"""
+
 ptg.append(hou.ButtonParmTemplate(
     "generate", "Generate",
     script_callback=_GENERATE_CB,
+    script_callback_language=hou.scriptLanguage.Python,
+    join_with_next=True,
+))
+ptg.append(hou.ButtonParmTemplate(
+    "cancel", "Cancel",
+    script_callback=_CANCEL_CB,
     script_callback_language=hou.scriptLanguage.Python,
 ))
 ptg.append(hou.StringParmTemplate(
@@ -215,10 +243,10 @@ ptg.append(hou.StringParmTemplate(
     default_value=("",),
     help="Current job status. Updated automatically by Generate.",
 ))
-ptg.append(hou.FloatParmTemplate(
-    "timeout", "Timeout (s)", 1,
-    default_value=(900.0,), min=60.0, max=1800.0,
-    help="HTTP request timeout in seconds. Increase if inference takes longer than expected.",
+ptg.append(hou.StringParmTemplate(
+    "job_id", "Job ID", 1,
+    default_value=("",),
+    is_hidden=True,
 ))
 ptg.append(hou.SeparatorParmTemplate("sep_npz"))
 ptg.append(hou.StringParmTemplate(

@@ -142,7 +142,7 @@ hda_node = node.parent()     # subnet SOP = the HDA wrapper
 
 npz_path = hda_node.parm(\"npz_path\").eval()
 if not npz_path:
-    raise hou.NodeError(\"npz_path is empty — set it or press Generate first.\")
+    return  # no NPZ yet — output empty geometry, wait for Generate
 
 geo = node.geometry()
 data       = np.load(npz_path)

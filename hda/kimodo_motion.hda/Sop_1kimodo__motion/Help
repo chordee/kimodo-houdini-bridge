@@ -23,7 +23,7 @@ frame, driving 77 SOMA joints as points with `name`, `parent_id`, and
 # Start the Docker services (text-encoder + api) as described in the README.
 # Set __Prompt__ to describe the desired motion.
 # Set __Duration__ in seconds.
-# Press __Generate__. The node cooks automatically when the NPZ is ready.
+# Press __Generate__. Watch __Status__ for progress; the node cooks automatically when the NPZ is ready. Use __Cancel__ to abort a running job.
 # Set the Houdini frame range to match __Frame Count__ and play back.
 
 Connect the output to a __Rig Pose SOP__ or any KineFX node that accepts
@@ -50,8 +50,18 @@ Model:
     Kimodo model variant to use. Default: Kimodo-SOMA-RP-v1.1.
 
 Generate:
-    Sends a POST to `<Server URL>/generate` and writes the result path
-    to __NPZ Path__. The node recooks automatically.
+    Submits the prompt to `<Server URL>/generate` and returns immediately
+    with a job ID. Inference runs on the server while a background thread
+    polls for progress, so Houdini stays responsive. When the job finishes,
+    __NPZ Path__ is updated and the node recooks automatically.
+
+Cancel:
+    Cancels the running job (terminates the server-side inference process).
+    Only meaningful while a job is in progress.
+
+Status:
+    Read-only. Shows the live job state: Queued, Running... (Ns) with elapsed
+    seconds, Done (Ns), Failed, or Cancelled.
 
 NPZ Path:
     Path to the NPZ file from the last Generate call.

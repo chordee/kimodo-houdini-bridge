@@ -110,14 +110,17 @@ Kimodo 模型變體：
 
 ### Generate（按鈕）
 
-按下後，節點會向 `<API Server URL>/generate` 發送 POST 請求，等待伺服器執行推論，將結果路徑寫入 **NPZ Path**，並強制重新 cook。推論期間 Houdini 介面會暫時無回應，屬於正常現象。
+按下後，節點會向 `<API Server URL>/generate` 提交 prompt，並立即取得一個 job ID 返回。推論在伺服器端執行，背景執行緒會持續輪詢進度，因此 **Houdini 不會凍結、可繼續操作**。任務完成後會自動更新 **NPZ Path** 並重新 cook。
 
 **注意：** 在 mock mode（`MOCK_MODE=1`）下，伺服器不執行推論，直接回傳 `dev_reference.npz`——無論輸入什麼 prompt 結果都相同。切換至 production mode（`MOCK_MODE=0`）才會真正跑模型。
 
-### Timeout (s)
-**預設：** `900`
+### Cancel（按鈕）
 
-等待伺服器回應的最長秒數（15 分鐘）。預設值涵蓋首次執行時從 HuggingFace 下載模型的時間。規格較高的機器可縮短；若遇到 timeout 錯誤則應加大。
+取消目前正在執行的任務（終止伺服器端的推論程序）。僅在任務進行中有作用。
+
+### Status
+
+唯讀欄位，顯示即時任務狀態：`Queued`、`Running... (N秒)`（含經過秒數）、`Done (N秒)`、`Failed` 或 `Cancelled`。由背景輪詢執行緒自動更新。
 
 ### NPZ Path
 

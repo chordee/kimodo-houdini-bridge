@@ -37,8 +37,9 @@ the [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model, outputting a
 | Prompt | `a person walks forward` | Natural language description of the desired motion. Be specific: body part, direction, speed, and style all influence the result. Examples: `"a person jogs in a circle"`, `"someone waves with their right hand"`. |
 | Duration (s) | `3.0` | Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames. Longer clips take more inference time. |
 | Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` (Reference Pose) conditions on a rest pose; `SEED` uses a fixed random seed for reproducibility. |
-| **Generate** | — | Sends a POST request to `<API Server URL>/generate`, waits for the server to run inference, then writes the result to **NPZ Path** and recooks the node. Houdini will appear frozen during inference — this is expected. |
-| Timeout (s) | `900` | Maximum seconds to wait for the server to respond. The default (15 min) covers first-run model loading from HuggingFace. Reduce on fast machines; increase if you see timeout errors. |
+| **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. Inference runs on the server while a background thread polls for progress, so **Houdini stays responsive**. When the job finishes, **NPZ Path** is updated and the node recooks automatically. |
+| **Cancel** | — | Cancels the currently running job (terminates the server-side inference process). Only meaningful while a job is in progress. |
+| Status | _(read-only)_ | Shows the live job state: `Queued`, `Running... (Ns)` with elapsed seconds, `Done (Ns)`, `Failed`, or `Cancelled`. Updated by the background poll thread. |
 | NPZ Path | _(auto-set by Generate)_ | Path on the **host** to the `.npz` file produced by Kimodo. Set automatically by **Generate**; you can also set it manually to load any pre-existing NPZ file (e.g. a clip generated via the CLI) without pressing Generate. The node recooks whenever this path changes. |
 
 #### What is an NPZ file?

@@ -51,14 +51,14 @@ services:
     image: kimodo:1.0
     container_name: kimodo-api
     working_dir: /workspace
-    command: uvicorn kimodo_server:app --host 0.0.0.0 --port 8001 --reload
+    command: uvicorn kimodo_server:app --host 0.0.0.0 --port ${KIMODO_PORT:-8001} --reload
     volumes:
       - ./:/workspace
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/workspace/.cache/huggingface
     ports:
-      - "8001:8001"
+      - "${KIMODO_PORT:-8001}:${KIMODO_PORT:-8001}"
     environment:
-      - MOCK_MODE=1        # set to 0 for live inference (requires text-encoder running)
+      - MOCK_MODE=${MOCK_MODE:-1}   # set to 0 for live inference (requires text-encoder running)
       - OUTPUT_DIR=/workspace/output
       - TEXT_ENCODER_URL=http://text-encoder:9550/
       - HF_HOME=/workspace/.cache/huggingface

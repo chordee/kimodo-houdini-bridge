@@ -1,307 +1,76 @@
 # kimodo-houdini-bridge
 
-A bridge that connects [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) — a text-driven 3D human motion generation model — to SideFX Houdini, so animators can generate skeleton animation directly from a Houdini node by typing a natural-language prompt.
+A personal research and development project that bridges [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) — a text-driven 3D human motion generation model — with SideFX Houdini, enabling animators to generate skeleton animation directly from a natural language prompt inside a Houdini node.
+
+> **Scope:** This project is built and tested for personal use. It is shared openly in case others find it useful, but it comes with no guarantees of stability or completeness. Contributions and issues are welcome.
 
 ---
 
-## Architecture: Hybrid Inference Mode
+## What is NVIDIA Kimodo?
 
-This project runs Kimodo in **Hybrid mode** by default: the diffusion model runs on the GPU while the text encoder is offloaded to CPU via Kimodo's official `TEXT_ENCODER_DEVICE=cpu` flag. This keeps GPU VRAM usage below 3 GB, making the setup accessible on mid-range cards.
-
-| Mode | GPU VRAM | Speed | Suitable hardware |
-|------|:--------:|-------|-------------------|
-| **Hybrid** (default) | < 3 GB | Near full-GPU (text encoding cached after first run) | Any NVIDIA GPU with >= 3 GB VRAM; >= 16 GB system RAM recommended |
-| **Full GPU** | ~17 GB | Fastest | High-end GPUs with >= 24 GB VRAM |
-
-To switch to Full GPU mode, remove `TEXT_ENCODER_DEVICE=cpu` from `docker-compose.hybrid.yaml` and give the text-encoder service a GPU reservation.
+[Kimodo](https://github.com/nv-tlabs/kimodo) is a diffusion-based text-to-motion model developed by NVIDIA Research. Given a natural language description (e.g. `"a person jogs forward"`), it generates a 3D human motion sequence as a 77-joint SOMA skeleton animation. The model runs locally via Docker and requires an NVIDIA GPU.
 
 ---
 
-## Prerequisites
+## What this project does
 
-### Software
+The bridge provides:
 
-| Dependency | Notes |
-|------------|-------|
-| Docker Desktop (Windows/Mac) or Docker Engine (Linux) | Enable WSL2 backend on Windows |
-| NVIDIA Driver (latest stable) | Required even for Hybrid mode — diffusion runs on GPU |
-| [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) | Enables `--gpus` flag in Docker |
-| Houdini H20.5 or later | Provides `hython` (Python 3.10/3.11) |
-| Python 3.x (system) | For running `scripts/check_env.py` only; no venv needed |
-
-### Hardware
-
-- NVIDIA GPU with >= 3 GB VRAM (Hybrid mode)
-- >= 16 GB system RAM (text encoder runs on CPU)
-- >= 50 GB free disk space (model checkpoints + Docker images)
-
-### Accounts / Tokens
-
-- HuggingFace account and access token — required to download Kimodo model weights
-- Accept the Kimodo model license on its HuggingFace page before downloading
+- **`docker-compose.hybrid.yaml`** — deploys Kimodo in Hybrid mode (diffusion on GPU, text encoder on CPU) with a FastAPI inference server
+- **`kimodo_server.py`** — a FastAPI wrapper that exposes `/generate` and `/health` endpoints; supports mock mode for development without running inference
+- **`kimodo_motion` HDA** — a Houdini SOP node that sends a prompt to the server, receives the output NPZ, and reconstructs the SOMA77 skeleton as KineFX-compatible geometry (77 points with `name`, `parent_id`, `localtransform`)
 
 ---
 
-## Step 0: Environment Validation
+## Possible use cases
 
-Clone this repo and run the pre-flight check:
-
-```bash
-git clone https://github.com/<your-org>/kimodo-houdini-bridge.git
-cd kimodo-houdini-bridge
-python scripts/check_env.py
-```
-
-The script checks Docker availability, GPU pass-through, system RAM, and port availability. Fix any `FAIL` items before continuing.
-
-Expected output when everything is ready:
-
-```
-[PASS] Docker CLI found
-[PASS] Docker daemon running
-[PASS] Docker GPU pass-through (nvidia-smi visible in container)
-[PASS] System RAM >= 16 GB — XX.X GB detected
-[PASS] Port 8000 available
-[PASS] Port 9550 available
-
-Result: 6/6 checks passed. Ready for Phase 1.
-```
+- Rapid motion prototyping — generate a reference clip from a description, then refine by hand
+- AI-assisted animation starting point — use the generated skeleton as a base pose or keyframe reference
+- Research and pipeline testing — evaluate Kimodo output inside a real DCC environment
+- Pre-visualization — batch generate rough motion clips for storyboard or layout work
 
 ---
 
-## Step 1: Clone Kimodo & Build Docker Image
+## Current limitations
 
-```bash
-# Clone Kimodo (e.g. alongside this repo)
-git clone https://github.com/nv-tlabs/kimodo.git
-cd kimodo
-
-# Clone the Kimodo-specific Viser fork — required before building
-git clone https://github.com/nv-tlabs/kimodo-viser.git
-```
-
-**Windows only:** Git may convert shell script line endings to CRLF, which breaks the Docker entrypoint. Fix before building:
-
-```bash
-sed -i 's/\r//' kimodo/scripts/docker-entrypoint.sh
-```
-
-```bash
-# Build the image — uses Kimodo's official CUDA-based Dockerfile
-# First build downloads the base image (~10 GB) and installs all dependencies
-docker build -t kimodo:1.0 .
-```
-
-> The base image is `nvcr.io/nvidia/pytorch:24.10-py3`. A fast internet connection or NGC access is required.
+- **English prompts only** — Kimodo's text encoder was trained on English descriptions
+- **Slow first generation** — the first `/generate` call in production mode downloads model weights from HuggingFace (~10 min) and loads the model into GPU memory; subsequent calls within the same server session are faster
+- **No in-process model caching** — the current architecture spawns a new subprocess per request, so the model is reloaded each time (planned improvement: [#3](../../issues/3))
+- **SOMA77 skeleton only** — retargeting to other rigs (e.g. UE5 Mannequin, Mixamo) requires an additional step not covered here
+- **GPU required** — Hybrid mode needs an NVIDIA GPU with ≥ 3 GB VRAM; CPU-only inference is not supported by Kimodo
+- **Mock mode ignores prompt** — when `MOCK_MODE=1`, the server always returns the same `dev_reference.npz` regardless of the prompt; switch to `MOCK_MODE=0` for real generation
 
 ---
 
-## Step 2: Start Services & Generate a Motion Clip
+## Architecture
 
-Copy `docker-compose.hybrid.yaml` from this repo into the `kimodo/` directory and create the output folder:
-
-```bash
-cp ../kimodo-houdini-bridge/docker-compose.hybrid.yaml .
-mkdir -p output
+```
+Houdini (kimodo_motion SOP)
+    │  HTTP POST /generate
+    ▼
+kimodo_server (FastAPI, port 8001)
+    │  subprocess: python -m kimodo.scripts.generate
+    ├──► text-encoder service (CPU, port 9550)  — encodes the prompt
+    └──► Kimodo diffusion (GPU)  — generates motion
+    │  returns .npz path
+    ▼
+kimodo_motion SOP reads NPZ → outputs 77-point SOMA skeleton per frame
 ```
 
-Export your HuggingFace token so the container can download model weights:
-
-```bash
-# Option A: if you have already run `hf auth login`, read it from the cache
-export HUGGING_FACE_HUB_TOKEN=$(cat ~/.cache/huggingface/token)
-
-# Option B: paste your token directly
-export HUGGING_FACE_HUB_TOKEN=hf_...
-```
-
-Start the text-encoder service (runs on CPU, stays up between generations):
-
-```bash
-docker compose -f docker-compose.hybrid.yaml up text-encoder -d
-
-# Wait until status shows "healthy"
-# First start downloads the LLM2Vec text encoder model and loads it on CPU — allow ~5-10 minutes
-docker compose -f docker-compose.hybrid.yaml ps
-```
-
-Run one generation (diffusion runs on GPU):
-
-```bash
-docker compose -f docker-compose.hybrid.yaml run --rm demo
-```
-
-Verify the output:
-
-```bash
-ls -lh output/test.npz
-```
-
-```python
-# In Houdini Python Shell or any Python
-import numpy as np
-data = np.load("output/test.npz")
-print(list(data.keys()))
-# ['local_rot_mats', 'global_rot_mats', 'posed_joints', 'root_positions',
-#  'smooth_root_pos', 'foot_contacts', 'global_root_heading']
-
-joints = data["posed_joints"]
-print(joints.shape)       # (T, 77, 3)  — T = frames, 77 = SOMA joints
-print(data["local_rot_mats"].shape)   # (T, 77, 3, 3)
-print(data["foot_contacts"].shape)    # (T, 6) bool — 6 contact points in SOMA skeleton
-```
-
-Save a copy as the development reference file:
-
-```bash
-cp output/test.npz output/dev_reference.npz
-```
+**Hybrid mode:** diffusion runs on GPU (< 3 GB VRAM); text encoding is offloaded to CPU to reduce VRAM pressure.
 
 ---
 
-## Step 3: Houdini Python Setup
+## Quick links
 
-Install required packages into Houdini's bundled Python:
-
-```bash
-# Linux / macOS
-$HFS/bin/hython -m pip install requests scipy numpy
-
-# Windows (adjust HFS path to your Houdini installation)
-"C:\Program Files\Side Effects Software\Houdini 21.0.xxx\bin\hython.exe" -m pip install requests scipy numpy
-```
-
-Verify inside the Houdini Python Shell:
-
-```python
-import numpy as np
-import requests
-import scipy
-print(np.__version__, requests.__version__, scipy.__version__)
-```
-
-All three should print version strings without import errors.
-
----
-
-## Step 4: Start the API Server
-
-Copy `kimodo_server.py` from this repo into the `kimodo/` directory alongside the compose file:
-
-```bash
-cp ../kimodo-houdini-bridge/kimodo_server.py .
-```
-
-Start the API service in **mock mode** (returns `dev_reference.npz` without running inference — useful for HDA development):
-
-```bash
-docker compose -f docker-compose.hybrid.yaml up api -d
-```
-
-Verify:
-
-```bash
-curl http://localhost:8001/health
-# {"status":"ok","mock_mode":true}
-
-curl -X POST http://localhost:8001/generate \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "a person walks forward", "duration": 3.0}'
-# {"npz_path":"/workspace/output/dev_reference.npz","prompt":"...","frames":90,"joints":77}
-```
-
-> **Port note:** Port 8000 is reserved by Docker Desktop on Windows. The API runs on **8001**.
-
-To enable **live inference**, make sure `text-encoder` is healthy first, then restart the api service with `MOCK_MODE=0`:
-
-```bash
-# text-encoder must already be running and healthy
-docker compose -f docker-compose.hybrid.yaml up text-encoder -d
-# wait until healthy (first run: ~5-10 min)
-
-docker compose -f docker-compose.hybrid.yaml stop api
-MOCK_MODE=0 docker compose -f docker-compose.hybrid.yaml up api -d
-```
-
-In live mode each `/generate` call runs full Kimodo diffusion on GPU (30 s – 3 min depending on duration).
-
-## Step 5: Connect from Houdini
-
-In the Houdini Python Shell:
-
-```python
-import requests
-
-resp = requests.post(
-    "http://localhost:8001/generate",
-    json={"prompt": "a person walks forward", "duration": 3.0},
-    timeout=30,
-)
-resp.raise_for_status()
-data = resp.json()
-print(data["npz_path"])  # /workspace/output/dev_reference.npz
-print(data["frames"])    # 90
-print(data["joints"])    # 77
-```
-
-Load the NPZ (Docker `/workspace/output/` maps to `./output/` on the host):
-
-```python
-import numpy as np
-
-host_path = data["npz_path"].replace("/workspace/output", "/path/to/kimodo/output")
-motion = np.load(host_path)
-print(motion["posed_joints"].shape)  # (90, 77, 3)
-```
-
----
-
-## Step 6: Build & Install the Houdini HDA
-
-Generate the HDA file using hython (no Houdini GUI required):
-
-```bash
-# From the kimodo-houdini-bridge repo root
-hython scripts/create_hda.py "/path/to/kimodo/output/dev_reference.npz" "/path/to/kimodo/output"
-# Output: kimodo_motion.hda
-```
-
-Install in Houdini: **Assets > Install Asset Library…** → select `kimodo_motion.hda`
-
-Then in any SOP network, drop a **kimodo_motion** node.
-
-**Parameters:**
-
-| Parameter | Description |
-|-----------|-------------|
-| API Server URL | `http://localhost:8001` (default) |
-| Host Output Dir | Host-side path mapped to `/workspace/output` inside Docker |
-| Prompt | Natural language motion description |
-| Duration (s) | Motion length |
-| Model | Kimodo model variant |
-| **Generate** | POST to API, download NPZ, recook skeleton |
-| NPZ Path | Set automatically by Generate; can be set manually |
-
-The node outputs **77 points** (SOMA skeleton) per frame with:
-- `name` (string) — joint name
-- `parent_id` (int) — parent joint index, -1 for root
-- `localtransform` (float[16]) — local rotation matrix + position, compatible with KineFX Rig Pose SOP
-
-**SOMA77 skeleton notes:**
-- Root: `Hips` (index 0)
-- Body chain: Hips → Spine1 → Spine2 → Chest → Neck1 → Neck2 → Head
-- Arms: Chest → LeftShoulder/RightShoulder → … → LeftHand/RightHand → fingers (index 15–38, 43–66)
-- Legs: Hips → LeftLeg/RightLeg → … → LeftToeEnd/RightToeEnd (index 67–76)
-
----
-
-## Next Steps
-
-- **Phase 4** — Caching, error handling, and UI polish
+- [Setup Guide](docs/setup.md) — step-by-step environment setup, Docker deployment, and HDA installation
+- [HDA Documentation](hda/README.md) — node parameters, output attributes, NPZ format explanation
+- [HDA Documentation (繁體中文)](hda/README.zh-TW.md)
 
 ---
 
 ## License
 
-This project is an integration bridge and does not redistribute Kimodo model weights.
-Kimodo is subject to its own license — see the [Kimodo repository](https://github.com/nv-tlabs/kimodo) for details.
+This project (bridge code, HDA, scripts) is released for personal and research use with no restrictions.
+
+The NVIDIA Kimodo model is subject to its own license — see the [Kimodo repository](https://github.com/nv-tlabs/kimodo) for terms before use.

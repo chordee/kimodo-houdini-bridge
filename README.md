@@ -168,7 +168,7 @@ Install required packages into Houdini's bundled Python:
 $HFS/bin/hython -m pip install requests scipy numpy
 
 # Windows (adjust HFS path to your Houdini installation)
-"C:\Program Files\Side Effects Software\Houdini 20.5.xxx\bin\hython.exe" -m pip install requests scipy numpy
+"C:\Program Files\Side Effects Software\Houdini 21.0.xxx\bin\hython.exe" -m pip install requests scipy numpy
 ```
 
 Verify inside the Houdini Python Shell:

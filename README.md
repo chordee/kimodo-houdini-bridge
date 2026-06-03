@@ -243,9 +243,47 @@ print(motion["posed_joints"].shape)  # (90, 77, 3)
 
 ---
 
+## Step 6: Build & Install the Houdini HDA
+
+Generate the HDA file using hython (no Houdini GUI required):
+
+```bash
+# From the kimodo-houdini-bridge repo root
+hython scripts/create_hda.py "D:/dev/kimodo/output/dev_reference.npz" "D:/dev/kimodo/output"
+# Output: kimodo_motion.hda
+```
+
+Install in Houdini: **Assets > Install Asset Library…** → select `kimodo_motion.hda`
+
+Then in any SOP network, drop a **kimodo_motion** node.
+
+**Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| API Server URL | `http://localhost:8001` (default) |
+| Host Output Dir | Host-side path mapped to `/workspace/output` inside Docker |
+| Prompt | Natural language motion description |
+| Duration (s) | Motion length |
+| Model | Kimodo model variant |
+| **Generate** | POST to API, download NPZ, recook skeleton |
+| NPZ Path | Set automatically by Generate; can be set manually |
+
+The node outputs **77 points** (SOMA skeleton) per frame with:
+- `name` (string) — joint name
+- `parent_id` (int) — parent joint index, -1 for root
+- `localtransform` (float[16]) — local rotation matrix + position, compatible with KineFX Rig Pose SOP
+
+**SOMA77 skeleton notes:**
+- Root: `Hips` (index 0)
+- Body chain: Hips → Spine1 → Spine2 → Chest → Neck1 → Neck2 → Head
+- Arms: Chest → LeftShoulder/RightShoulder → … → LeftHand/RightHand → fingers (index 15–38, 43–66)
+- Legs: Hips → LeftLeg/RightLeg → … → LeftToeEnd/RightToeEnd (index 67–76)
+
+---
+
 ## Next Steps
 
-- **Phase 3** — HDA development: build a Houdini Digital Asset that drives skeleton animation from NPZ output
 - **Phase 4** — Caching, error handling, and UI polish
 
 ---

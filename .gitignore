@@ -7,8 +7,7 @@ output/
 __pycache__/
 *.pyc
 
-# Houdini
+# Houdini (scene files only; .hda is tracked)
 *.hiplc
 *.hip
-*.hda
 backup/

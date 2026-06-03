@@ -67,16 +67,15 @@
         label   "Generate"
         type    button
         default { "0" }
-        parmtag { "script_callback" "\nimport requests, hou\n\nnode        = kwargs[\"node\"]\nurl         = node.parm(\"server_url\").eval().rstrip(\"/\")\nhost_output = node.parm(\"host_output_dir\").eval().rstrip(\"/\")\n\nresp = requests.post(\n    f\"{url}/generate\",\n    json={\n        \"prompt\":   node.parm(\"prompt\").eval(),\n        \"duration\": node.parm(\"duration\").eval(),\n        \"model\":    node.parm(\"model\").evalAsString(),\n    },\n    timeout=node.parm(\"timeout\").eval(),\n)\nresp.raise_for_status()\nresult = resp.json()\n\nnpz_path = result[\"npz_path\"].replace(\"/workspace/output\", host_output)\nnode.parm(\"npz_path\").set(npz_path)\nnode.cook(force=True)\nhou.ui.displayMessage(\n    f\"Generated {result['frames']} frames ({result['joints']} joints).\",\n    title=\"Kimodo\",\n)\n" }
+        parmtag { "script_callback" "\nimport threading, time, requests, hou\n\nnode        = kwargs[\"node\"]\nurl         = node.parm(\"server_url\").eval().rstrip(\"/\")\nhost_output = node.parm(\"host_output_dir\").eval().rstrip(\"/\")\n\ntry:\n    resp = requests.post(\n        f\"{url}/generate\",\n        json={\n            \"prompt\":   node.parm(\"prompt\").eval(),\n            \"duration\": node.parm(\"duration\").eval(),\n            \"model\":    node.parm(\"model\").evalAsString(),\n        },\n        timeout=30,\n    )\n    resp.raise_for_status()\nexcept Exception as e:\n    hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title=\"Kimodo\")\n    node.parm(\"status\").set(f\"Error: {e}\")\nelse:\n    job_id = resp.json()[\"job_id\"]\n    node.parm(\"status\").set(f\"Queued ({job_id[:8]}...)\")\n\n    def _poll():\n        while True:\n            time.sleep(5)\n            try:\n                r = requests.get(f\"{url}/jobs/{job_id}\", timeout=10)\n                r.raise_for_status()\n                data = r.json()\n            except Exception as e:\n                node.parm(\"status\").set(f\"Poll error: {e}\")\n                continue\n            status  = data[\"status\"]\n            elapsed = data.get(\"elapsed\")\n            elapsed_str = f\" ({int(elapsed)}s)\" if elapsed else \"\"\n            if status == \"done\":\n                npz = data[\"npz_path\"].replace(\"/workspace/output\", host_output)\n                node.parm(\"status\").set(f\"Done{elapsed_str}\")\n                node.parm(\"npz_path\").set(npz)\n                node.cook(force=True)\n                hou.ui.displayMessage(\n                    f\"Generated {data['frames']} frames ({data['joints']} joints){elapsed_str}.\",\n                    title=\"Kimodo\",\n                )\n                break\n            elif status == \"failed\":\n                msg = data.get(\"error\", \"Unknown error\")\n                node.parm(\"status\").set(f\"Failed: {msg[:60]}\")\n                hou.ui.displayMessage(f\"Generation failed:\\n{msg}\", severity=hou.severityType.Error, title=\"Kimodo\")\n                break\n            else:\n                node.parm(\"status\").set(f\"Running...{elapsed_str}\")\n\n    threading.Thread(target=_poll, daemon=True).start()\n    hou.ui.displayMessage(\n        \"Generation started in background.\\nHoudini will update automatically when done.\",\n        title=\"Kimodo\",\n    )\n" }
         parmtag { "script_callback_language" "python" }
     }
     parm {
-        name    "timeout"
-        label   "Timeout (s)"
-        type    float
-        default { "900" }
-        range   { 60 1800 }
-        help    "HTTP request timeout in seconds. Increase if inference takes longer than expected."
+        name    "status"
+        label   "Status"
+        type    string
+        default { "" }
+        help    "Current job status. Updated automatically by Generate."
     }
     parm {
         name    "sep_npz"

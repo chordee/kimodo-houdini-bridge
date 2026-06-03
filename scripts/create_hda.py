@@ -90,31 +90,66 @@ for i, (name, parent) in enumerate(zip(SOMA77_JOINTS, SOMA77_PARENTS)):
 """
 
 _GENERATE_CB = r"""
-import requests, hou
+import threading, time, requests, hou
 
 node        = kwargs["node"]
 url         = node.parm("server_url").eval().rstrip("/")
 host_output = node.parm("host_output_dir").eval().rstrip("/")
 
-resp = requests.post(
-    f"{url}/generate",
-    json={
-        "prompt":   node.parm("prompt").eval(),
-        "duration": node.parm("duration").eval(),
-        "model":    node.parm("model").evalAsString(),
-    },
-    timeout=node.parm("timeout").eval(),
-)
-resp.raise_for_status()
-result = resp.json()
+try:
+    resp = requests.post(
+        f"{url}/generate",
+        json={
+            "prompt":   node.parm("prompt").eval(),
+            "duration": node.parm("duration").eval(),
+            "model":    node.parm("model").evalAsString(),
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+except Exception as e:
+    hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
+    node.parm("status").set(f"Error: {e}")
+else:
+    job_id = resp.json()["job_id"]
+    node.parm("status").set(f"Queued ({job_id[:8]}...)")
 
-npz_path = result["npz_path"].replace("/workspace/output", host_output)
-node.parm("npz_path").set(npz_path)
-node.cook(force=True)
-hou.ui.displayMessage(
-    f"Generated {result['frames']} frames ({result['joints']} joints).",
-    title="Kimodo",
-)
+    def _poll():
+        while True:
+            time.sleep(5)
+            try:
+                r = requests.get(f"{url}/jobs/{job_id}", timeout=10)
+                r.raise_for_status()
+                data = r.json()
+            except Exception as e:
+                node.parm("status").set(f"Poll error: {e}")
+                continue
+            status  = data["status"]
+            elapsed = data.get("elapsed")
+            elapsed_str = f" ({int(elapsed)}s)" if elapsed else ""
+            if status == "done":
+                npz = data["npz_path"].replace("/workspace/output", host_output)
+                node.parm("status").set(f"Done{elapsed_str}")
+                node.parm("npz_path").set(npz)
+                node.cook(force=True)
+                hou.ui.displayMessage(
+                    f"Generated {data['frames']} frames ({data['joints']} joints){elapsed_str}.",
+                    title="Kimodo",
+                )
+                break
+            elif status == "failed":
+                msg = data.get("error", "Unknown error")
+                node.parm("status").set(f"Failed: {msg[:60]}")
+                hou.ui.displayMessage(f"Generation failed:\n{msg}", severity=hou.severityType.Error, title="Kimodo")
+                break
+            else:
+                node.parm("status").set(f"Running...{elapsed_str}")
+
+    threading.Thread(target=_poll, daemon=True).start()
+    hou.ui.displayMessage(
+        "Generation started in background.\nHoudini will update automatically when done.",
+        title="Kimodo",
+    )
 """
 
 # ── build Houdini scene ──────────────────────────────────────────────────────
@@ -174,6 +209,11 @@ ptg.append(hou.ButtonParmTemplate(
     "generate", "Generate",
     script_callback=_GENERATE_CB,
     script_callback_language=hou.scriptLanguage.Python,
+))
+ptg.append(hou.StringParmTemplate(
+    "status", "Status", 1,
+    default_value=("",),
+    help="Current job status. Updated automatically by Generate.",
 ))
 ptg.append(hou.FloatParmTemplate(
     "timeout", "Timeout (s)", 1,

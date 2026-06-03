@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 import os
 import sys
@@ -32,17 +34,24 @@ class GenerateRequest(BaseModel):
     duration: float = 3.0
     model: str = "soma-rp"
     num_samples: int = 1
+    force: bool = False          # bypass the cache and re-run inference
 
 
 class JobStatus(BaseModel):
     job_id: str
-    status: str          # queued | running | done | failed
+    status: str          # queued | running | done | failed | cancelled
     npz_path: Optional[str] = None
     prompt: Optional[str] = None
     frames: Optional[int] = None
     joints: Optional[int] = None
     error: Optional[str] = None
     elapsed: Optional[float] = None
+    cached: Optional[bool] = None    # True if served from a cached NPZ
+
+
+def _cache_key(prompt: str, duration: float, model: str) -> str:
+    payload = json.dumps({"prompt": prompt, "duration": duration, "model": model}, sort_keys=True)
+    return hashlib.md5(payload.encode()).hexdigest()
 
 
 @app.get("/health")
@@ -76,6 +85,7 @@ def job_status(job_id: str) -> JobStatus:
         joints=job.get("joints"),
         error=job.get("error"),
         elapsed=round(elapsed, 1) if elapsed is not None else None,
+        cached=job.get("cached"),
     )
 
 
@@ -114,7 +124,16 @@ async def _run_job(job_id: str, req: GenerateRequest) -> None:
                        elapsed=round(_time.monotonic() - job["started_at"], 1))
             return
 
-        out_path = OUTPUT_DIR / f"{uuid.uuid4().hex}.npz"
+        out_path = OUTPUT_DIR / f"{_cache_key(req.prompt, req.duration, req.model)}.npz"
+
+        if not req.force and out_path.exists():
+            data = np.load(out_path)
+            T, J = data["posed_joints"].shape[:2]
+            log.info("[CACHE] %s → %s", job_id[:8], out_path.name)
+            job.update(status="done", npz_path=str(out_path), frames=T, joints=J,
+                       cached=True, elapsed=round(_time.monotonic() - job["started_at"], 1))
+            return
+
         cmd = [
             sys.executable, "-m", "kimodo.scripts.generate",
             req.prompt,
@@ -150,8 +169,13 @@ async def _run_job(job_id: str, req: GenerateRequest) -> None:
 
         data = np.load(out_path)
         T, J = data["posed_joints"].shape[:2]
+        out_path.with_suffix(".json").write_text(json.dumps({
+            "prompt": req.prompt, "duration": req.duration, "model": req.model,
+            "frames": int(T), "joints": int(J), "created": _time.time(),
+        }, indent=2))
         log.info("[DONE] %s — %d frames, %d joints, %.1fs", job_id[:8], T, J, elapsed)
-        job.update(status="done", npz_path=str(out_path), frames=T, joints=J, elapsed=elapsed)
+        job.update(status="done", npz_path=str(out_path), frames=T, joints=J,
+                   cached=False, elapsed=elapsed)
     except Exception as exc:  # never leave a job stuck in "running"
         if job.get("status") != "cancelled":
             log.exception("[FAIL] %s", job_id[:8])

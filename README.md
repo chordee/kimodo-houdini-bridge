@@ -34,8 +34,8 @@ The bridge provides:
 ## Current limitations
 
 - **English prompts only** — Kimodo's text encoder was trained on English descriptions
-- **Slow first generation** — the first `/generate` call in production mode downloads model weights from HuggingFace (~10 min) and loads the model into GPU memory; subsequent calls within the same server session are faster
-- **No in-process model caching** — the current architecture spawns a new subprocess per request, so the model is reloaded each time (planned improvement: [#3](../../issues/3))
+- **Slow first generation** — the first `/generate` call in production mode downloads model weights from HuggingFace (~10 min) and loads the model into GPU memory; subsequent calls within the same server session are faster. Identical requests (same prompt, duration, model) are served from cache and return instantly
+- **No in-process model caching** — the current architecture spawns a new subprocess per request, so the model is reloaded each time (planned improvement: [#1](../../issues/1))
 - **SOMA77 skeleton only** — retargeting to other rigs (e.g. UE5 Mannequin, Mixamo) requires an additional step not covered here
 - **GPU required** — Hybrid mode needs an NVIDIA GPU with ≥ 3 GB VRAM; CPU-only inference is not supported by Kimodo
 - **Mock mode ignores prompt** — when `MOCK_MODE=1`, the server always returns the same `dev_reference.npz` regardless of the prompt; switch to `MOCK_MODE=0` for real generation

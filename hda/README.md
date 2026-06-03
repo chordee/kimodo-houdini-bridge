@@ -37,9 +37,10 @@ the [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model, outputting a
 | Prompt | `a person walks forward` | Natural language description of the desired motion. Be specific: body part, direction, speed, and style all influence the result. Examples: `"a person jogs in a circle"`, `"someone waves with their right hand"`. |
 | Duration (s) | `3.0` | Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames. Longer clips take more inference time. |
 | Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` (Reference Pose) conditions on a rest pose; `SEED` uses a fixed random seed for reproducibility. |
+| Force Regenerate | `off` | Bypass the server cache and re-run inference even if a clip with the same prompt, duration, and model already exists. See [Caching](#caching). |
 | **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. Inference runs on the server while a background thread polls for progress, so **Houdini stays responsive**. When the job finishes, **NPZ Path** is updated and the node recooks automatically. |
 | **Cancel** | — | Cancels the currently running job (terminates the server-side inference process). Only meaningful while a job is in progress. |
-| Status | _(read-only)_ | Shows the live job state: `Queued`, `Running... (Ns)` with elapsed seconds, `Done (Ns)`, `Failed`, or `Cancelled`. Updated by the background poll thread. |
+| Status | _(read-only)_ | Shows the live job state: `Queued`, `Running... (Ns)` with elapsed seconds, `Done (Ns)` — or `Done (Ns) (cached)` on a cache hit — `Failed`, or `Cancelled`. Updated by the background poll thread. |
 | NPZ Path | _(auto-set by Generate)_ | Path on the **host** to the `.npz` file produced by Kimodo. Set automatically by **Generate**; you can also set it manually to load any pre-existing NPZ file (e.g. a clip generated via the CLI) without pressing Generate. The node recooks whenever this path changes. |
 
 #### What is an NPZ file?
@@ -55,6 +56,12 @@ An NPZ file (NumPy compressed archive) is the output format of Kimodo inference.
 | `foot_contacts` | `(T, 6)` | Boolean foot-contact labels (6 SOMA contact points) |
 
 You can load any Kimodo NPZ directly — paste its host path into **NPZ Path** and the node will rebuild the skeleton for that clip.
+
+### Caching
+
+The server caches results by an MD5 of `prompt + duration + model`, using that hash as the output filename (e.g. `a872d0b….npz`) with a sibling `.json` metadata file (prompt, duration, model, frame count, timestamp). Pressing **Generate** with parameters that match an existing clip returns it instantly — the **Status** field shows `Done (cached)` and no inference runs.
+
+To force a fresh run (e.g. for a `SEED` model variant, or to get a different take), enable **Force Regenerate**. To clear the cache, delete the `.npz`/`.json` files from your **Host Output Dir**.
 
 ### Prerequisites
 

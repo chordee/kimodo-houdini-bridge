@@ -76,16 +76,34 @@ def _cook():
     frame_pos  = posed[frame]
     frame_rots = local_rots[frame]
 
+    # Build per-joint paths and world-space rotations
+    paths = []
+    def _build_path(i):
+        p = SOMA77_PARENTS[i]
+        return ('/' + SOMA77_JOINTS[i]) if p < 0 else (_build_path(p) + '/' + SOMA77_JOINTS[i])
+    paths = [_build_path(i) for i in range(len(SOMA77_JOINTS))]
+
+    world_rots = [None] * len(SOMA77_JOINTS)
+    for i, parent in enumerate(SOMA77_PARENTS):
+        lr = frame_rots[i]
+        world_rots[i] = lr if parent < 0 else lr @ world_rots[parent]
+
+    _ID9  = (1.,0.,0.,0.,1.,0.,0.,0.,1.)
     _ID16 = (1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1.)
     geo.addAttrib(hou.attribType.Point, "name",           "")
+    geo.addAttrib(hou.attribType.Point, "path",           "")
     geo.addAttrib(hou.attribType.Point, "parent_id",      -1)
+    geo.addAttrib(hou.attribType.Point, "transform",      _ID9)
     geo.addAttrib(hou.attribType.Point, "localtransform", _ID16)
 
     for i, (name, parent) in enumerate(zip(SOMA77_JOINTS, SOMA77_PARENTS)):
+        wr = world_rots[i]
         pt = geo.createPoint()
         pt.setPosition(hou.Vector3(frame_pos[i].tolist()))
         pt.setAttribValue("name",           name)
+        pt.setAttribValue("path",           paths[i])
         pt.setAttribValue("parent_id",      parent)
+        pt.setAttribValue("transform",      tuple(float(v) for v in wr.flatten()))
         pt.setAttribValue("localtransform", _make_mat4(frame_rots[i], frame_pos[i]))
 
     pts = list(geo.points())
@@ -418,20 +436,15 @@ T_POSE_LOCALTRANSFORMS = [
     (0.9999989,-0.0001217,0.0014706,0.0,0.0,0.9965956,0.0824467,0.0,-0.0014756,-0.0824467,0.9965945,0.0,0.132842,-0.0474458,-0.0181423,1.0),
     (1.0,-2.58e-05,-2e-07,0.0,2.58e-05,0.9998479,0.0174524,0.0,-2e-07,-0.0174524,0.9998478,0.0,0.064599,-0.0156685,-0.0047457,1.0),
 ]
-_ID9  = (1.,0.,0.,0.,1.,0.,0.,0.,1.)
-_ID16 = (1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1.)
+_ID9 = (1.,0.,0.,0.,1.,0.,0.,0.,1.)
 geo = hou.pwd().geometry()
-geo.addAttrib(hou.attribType.Point, "name",           "")
-geo.addAttrib(hou.attribType.Point, "parent_id",      -1)
-geo.addAttrib(hou.attribType.Point, "transform",      _ID9)
-geo.addAttrib(hou.attribType.Point, "localtransform", _ID16)
-for i, (name, parent) in enumerate(zip(SOMA77_JOINTS, SOMA77_PARENTS)):
+geo.addAttrib(hou.attribType.Point, "name",      "")
+geo.addAttrib(hou.attribType.Point, "transform", _ID9)
+for i, name in enumerate(SOMA77_JOINTS):
     pt = geo.createPoint()
     pt.setPosition(hou.Vector3(NEUTRAL_JOINTS[i]))
-    pt.setAttribValue("name",           name)
-    pt.setAttribValue("parent_id",      parent)
-    pt.setAttribValue("transform",      T_POSE_TRANSFORMS[i])
-    pt.setAttribValue("localtransform", T_POSE_LOCALTRANSFORMS[i])
+    pt.setAttribValue("name",      name)
+    pt.setAttribValue("transform", T_POSE_TRANSFORMS[i])
 pts = list(geo.points())
 for i, parent in enumerate(SOMA77_PARENTS):
     if parent >= 0:

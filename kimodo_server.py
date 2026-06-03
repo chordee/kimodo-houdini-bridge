@@ -97,50 +97,63 @@ async def cancel_job(job_id: str) -> JobStatus:
 
 async def _run_job(job_id: str, req: GenerateRequest) -> None:
     job = _jobs[job_id]
+    if job.get("status") == "cancelled":  # cancelled while still queued
+        job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
+        return
     job["status"] = "running"
 
-    if MOCK_MODE:
-        if not DEV_REFERENCE.exists():
-            job["status"] = "failed"
-            job["error"] = f"dev_reference.npz not found at {DEV_REFERENCE}"
+    try:
+        if MOCK_MODE:
+            if not DEV_REFERENCE.exists():
+                job.update(status="failed", error=f"dev_reference.npz not found at {DEV_REFERENCE}")
+                return
+            log.info("[MOCK] %s → %s", job_id[:8], DEV_REFERENCE)
+            data = np.load(DEV_REFERENCE)
+            T, J = data["posed_joints"].shape[:2]
+            job.update(status="done", npz_path=str(DEV_REFERENCE), frames=T, joints=J,
+                       elapsed=round(_time.monotonic() - job["started_at"], 1))
             return
-        log.info("[MOCK] %s → %s", job_id[:8], DEV_REFERENCE)
-        data = np.load(DEV_REFERENCE)
+
+        out_path = OUTPUT_DIR / f"{uuid.uuid4().hex}.npz"
+        cmd = [
+            sys.executable, "-m", "kimodo.scripts.generate",
+            req.prompt,
+            "--model", req.model,
+            "--duration", str(req.duration),
+            "--output", str(out_path),
+        ]
+        log.info("[GEN] %s %s", job_id[:8], " ".join(cmd))
+
+        env = os.environ.copy()
+        env["TEXT_ENCODER_URL"] = TEXT_ENCODER_URL
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        job["proc"] = proc
+        stdout, stderr = await proc.communicate()
+        elapsed = round(_time.monotonic() - job["started_at"], 1)
+
+        if job.get("status") == "cancelled":  # cancel terminated the subprocess
+            job["elapsed"] = elapsed
+            return
+        if proc.returncode != 0:
+            log.error("[FAIL] %s\n%s", job_id[:8], stderr.decode())
+            job.update(status="failed", error=stderr.decode()[-500:], elapsed=elapsed)
+            return
+        if not out_path.exists():
+            job.update(status="failed", error="Output file not found after inference.", elapsed=elapsed)
+            return
+
+        data = np.load(out_path)
         T, J = data["posed_joints"].shape[:2]
-        job.update(status="done", npz_path=str(DEV_REFERENCE), frames=T, joints=J,
-                   elapsed=_time.monotonic() - job["started_at"])
-        return
-
-    out_path = OUTPUT_DIR / f"{uuid.uuid4().hex}.npz"
-    cmd = [
-        sys.executable, "-m", "kimodo.scripts.generate",
-        req.prompt, "--duration", str(req.duration), "--output", str(out_path),
-    ]
-    log.info("[GEN] %s %s", job_id[:8], " ".join(cmd))
-
-    env = os.environ.copy()
-    env["TEXT_ENCODER_URL"] = TEXT_ENCODER_URL
-
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        env=env,
-    )
-    job["proc"] = proc
-    stdout, stderr = await proc.communicate()
-    elapsed = _time.monotonic() - job["started_at"]
-
-    if proc.returncode != 0:
-        log.error("[FAIL] %s\n%s", job_id[:8], stderr.decode())
-        job.update(status="failed", error=stderr.decode()[-500:], elapsed=elapsed)
-        return
-
-    if not out_path.exists():
-        job.update(status="failed", error="Output file not found after inference.", elapsed=elapsed)
-        return
-
-    data = np.load(out_path)
-    T, J = data["posed_joints"].shape[:2]
-    log.info("[DONE] %s — %d frames, %d joints, %.1fs", job_id[:8], T, J, elapsed)
-    job.update(status="done", npz_path=str(out_path), frames=T, joints=J, elapsed=elapsed)
+        log.info("[DONE] %s — %d frames, %d joints, %.1fs", job_id[:8], T, J, elapsed)
+        job.update(status="done", npz_path=str(out_path), frames=T, joints=J, elapsed=elapsed)
+    except Exception as exc:  # never leave a job stuck in "running"
+        if job.get("status") != "cancelled":
+            log.exception("[FAIL] %s", job_id[:8])
+            job.update(status="failed", error=str(exc)[-500:],
+                       elapsed=round(_time.monotonic() - job["started_at"], 1))

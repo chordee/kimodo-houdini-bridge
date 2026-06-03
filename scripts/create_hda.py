@@ -116,21 +116,33 @@ else:
     node.parm("status").set(f"Queued ({job_id[:8]}...)")
 
     def _poll():
+        # HOM/UI calls are not thread-safe: marshal them to the main thread.
+        import hdefereval
+        def _set(parm, val):
+            hdefereval.executeInMainThreadWithResult(lambda: node.parm(parm).set(val))
+        def _msg(text, severity=None):
+            if severity is None:
+                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, title="Kimodo"))
+            else:
+                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, severity=severity, title="Kimodo"))
         fails = 0
         while True:
             time.sleep(5)
+            # stop if a newer Generate has replaced this job
+            if hdefereval.executeInMainThreadWithResult(lambda: node.parm("job_id").eval()) != job_id:
+                break
             try:
                 r = requests.get(f"{url}/jobs/{job_id}", timeout=10)
                 if r.status_code == 404:
-                    node.parm("status").set("Job lost (server restarted?)")
-                    node.parm("job_id").set("")
+                    _set("status", "Job lost (server restarted?)")
+                    _set("job_id", "")
                     break
                 r.raise_for_status()
                 data = r.json()
                 fails = 0
             except Exception as e:
                 fails += 1
-                node.parm("status").set(f"Poll error ({fails}/3): {e}")
+                _set("status", f"Poll error ({fails}/3): {e}")
                 if fails >= 3:
                     break
                 continue
@@ -139,23 +151,23 @@ else:
             elapsed_str = f" ({int(elapsed)}s)" if elapsed else ""
             if status == "done":
                 npz = data["npz_path"].replace("/workspace/output", host_output)
-                node.parm("status").set(f"Done{elapsed_str}")
-                node.parm("npz_path").set(npz)
-                node.parm("job_id").set("")
-                node.cook(force=True)
-                hou.ui.displayMessage(
-                    f"Generated {data['frames']} frames ({data['joints']} joints){elapsed_str}.",
-                    title="Kimodo",
-                )
+                frames, joints = data["frames"], data["joints"]
+                def _finish():
+                    node.parm("status").set(f"Done{elapsed_str}")
+                    node.parm("npz_path").set(npz)
+                    node.parm("job_id").set("")
+                    node.cook(force=True)
+                hdefereval.executeInMainThreadWithResult(_finish)
+                _msg(f"Generated {frames} frames ({joints} joints){elapsed_str}.")
                 break
             elif status in ("failed", "cancelled"):
-                msg = data.get("error") or status.capitalize()
-                node.parm("status").set(f"{status.capitalize()}: {msg[:60]}" if data.get("error") else status.capitalize())
+                err = data.get("error")
+                _set("status", f"{status.capitalize()}: {err[:60]}" if err else status.capitalize())
                 if status == "failed":
-                    hou.ui.displayMessage(f"Generation failed:\n{msg}", severity=hou.severityType.Error, title="Kimodo")
+                    _msg(f"Generation failed:\n{err}", severity=hou.severityType.Error)
                 break
             else:
-                node.parm("status").set(f"Running...{elapsed_str}")
+                _set("status", f"Running...{elapsed_str}")
 
     threading.Thread(target=_poll, daemon=True).start()
     hou.ui.displayMessage(

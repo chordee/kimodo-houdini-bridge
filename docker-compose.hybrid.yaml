@@ -58,7 +58,15 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - MOCK_MODE=1
+      - MOCK_MODE=1        # set to 0 for live inference (requires text-encoder running)
       - OUTPUT_DIR=/workspace/output
+      - TEXT_ENCODER_URL=http://text-encoder:9550/
       - HF_HOME=/workspace/.cache/huggingface
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

@@ -192,7 +192,7 @@ Copy `kimodo_server.py` from this repo into the `kimodo/` directory alongside th
 cp ../kimodo-houdini-bridge/kimodo_server.py .
 ```
 
-Start the API service (mock mode — returns `dev_reference.npz` without re-running inference):
+Start the API service in **mock mode** (returns `dev_reference.npz` without running inference — useful for HDA development):
 
 ```bash
 docker compose -f docker-compose.hybrid.yaml up api -d
@@ -211,6 +211,19 @@ curl -X POST http://localhost:8001/generate \
 ```
 
 > **Port note:** Port 8000 is reserved by Docker Desktop on Windows. The API runs on **8001**.
+
+To enable **live inference**, make sure `text-encoder` is healthy first, then restart the api service with `MOCK_MODE=0`:
+
+```bash
+# text-encoder must already be running and healthy
+docker compose -f docker-compose.hybrid.yaml up text-encoder -d
+# wait until healthy (first run: ~5-10 min)
+
+docker compose -f docker-compose.hybrid.yaml stop api
+MOCK_MODE=0 docker compose -f docker-compose.hybrid.yaml up api -d
+```
+
+In live mode each `/generate` call runs full Kimodo diffusion on GPU (30 s – 3 min depending on duration).
 
 ## Step 5: Connect from Houdini
 

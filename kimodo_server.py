@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import sys
 import uuid
 from pathlib import Path
 
@@ -19,6 +21,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 DEV_REFERENCE = OUTPUT_DIR / "dev_reference.npz"
 MOCK_MODE = os.environ.get("MOCK_MODE", "1") == "1"
+TEXT_ENCODER_URL = os.environ.get("TEXT_ENCODER_URL", "http://text-encoder:9550/")
 
 
 class GenerateRequest(BaseModel):
@@ -42,7 +45,7 @@ def health() -> dict:
 
 
 @app.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest) -> GenerateResponse:
+async def generate(req: GenerateRequest) -> GenerateResponse:
     if MOCK_MODE:
         if not DEV_REFERENCE.exists():
             raise HTTPException(500, f"dev_reference.npz not found at {DEV_REFERENCE}")
@@ -57,5 +60,39 @@ def generate(req: GenerateRequest) -> GenerateResponse:
             joints=J,
         )
 
-    # Production mode — enabled in Phase 3+
-    raise HTTPException(501, "Production mode not yet implemented. Set MOCK_MODE=1.")
+    out_path = OUTPUT_DIR / f"{uuid.uuid4().hex}.npz"
+    cmd = [
+        sys.executable, "-m", "kimodo.scripts.generate",
+        req.prompt,
+        "--duration", str(req.duration),
+        "--output", str(out_path),
+    ]
+    log.info("[GEN] %s", " ".join(cmd))
+
+    env = os.environ.copy()
+    env["TEXT_ENCODER_URL"] = TEXT_ENCODER_URL
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        log.error("Kimodo failed:\n%s", stderr.decode())
+        raise HTTPException(500, f"Kimodo inference failed: {stderr.decode()[-500:]}")
+
+    if not out_path.exists():
+        raise HTTPException(500, "Inference completed but output file not found.")
+
+    data = np.load(out_path)
+    T, J = data["posed_joints"].shape[:2]
+    return GenerateResponse(
+        npz_path=str(out_path),
+        prompt=req.prompt,
+        duration=req.duration,
+        frames=T,
+        joints=J,
+    )

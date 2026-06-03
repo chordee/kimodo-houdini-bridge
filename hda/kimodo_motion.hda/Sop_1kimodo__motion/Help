@@ -73,7 +73,19 @@ NPZ Path:
 
 == Output Geometry ==
 
-The node outputs one point per joint (77 total, SOMA skeleton):
+The node has two outputs, both producing 77-joint SOMA skeletons with polyline
+primitives connecting each parent-child pair:
+
+:output0:
+    Animated skeleton — rebuilds every frame from the NPZ file.
+    `localtransform` carries the per-frame local rotation and position.
+
+:output1:
+    T-pose (rest) skeleton — static, does not depend on the NPZ.
+    All `localtransform` values are identity; joint positions are the
+    SOMA77 neutral pose from Kimodo's skeleton definition.
+
+Both outputs carry the same point attributes:
 
 table>>
     tr>>

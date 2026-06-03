@@ -18,7 +18,17 @@ A SOP node that generates 3D human motion from a natural language prompt via
 the [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model, outputting a
 77-joint SOMA skeleton compatible with Houdini KineFX.
 
-### Output geometry
+### Outputs
+
+The node has **two outputs**, both producing a 77-joint SOMA skeleton.
+Polyline primitives connect each parent-child pair for bone visualization.
+
+| Output | Content | Time-dependent |
+|--------|---------|----------------|
+| **output0** | Animated skeleton — rebuilds every frame from the NPZ file | Yes (`$F`) |
+| **output1** | T-pose (rest) skeleton — static, does not depend on the NPZ | No |
+
+Both outputs carry the same point attributes:
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
@@ -26,7 +36,10 @@ the [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model, outputting a
 | `parent_id` | int | Parent joint index; -1 for root (`Hips`) |
 | `localtransform` | float[16] | Local rotation matrix + position (row-major 4×4) |
 
-77 points per frame. Connect to **Rig Pose SOP** for KineFX rig binding.
+Output0: `localtransform` carries the per-frame local rotation and world position.  
+Output1: all `localtransform` are identity; joint positions are the SOMA77 neutral pose from Kimodo's skeleton definition.
+
+Connect output0 to **Rig Pose SOP** for KineFX rig binding. Use output1 as the rest skeleton input for **Bone Capture** or **Skin SOP**.
 
 ### Parameters
 

@@ -49,7 +49,6 @@ SOMA77_PARENTS = [
 ]
 
 def _make_mat4(rot, pos):
-    # Store as tuple[16] — Houdini interprets float[16] as matrix4 for localtransform
     return (
         float(rot[0,0]),float(rot[0,1]),float(rot[0,2]),0.,
         float(rot[1,0]),float(rot[1,1]),float(rot[1,2]),0.,
@@ -57,44 +56,47 @@ def _make_mat4(rot, pos):
         float(pos[0]),  float(pos[1]),  float(pos[2]),  1.,
     )
 
-node     = hou.pwd()
-hda_node = node.parent()     # subnet SOP = the HDA wrapper
+def _cook():
+    node     = hou.pwd()
+    hda_node = node.parent()
 
-npz_path = hda_node.parm("npz_path").eval()
-if not npz_path:
-    return  # no NPZ yet — output empty geometry, wait for Generate
+    npz_path = hda_node.parm("npz_path").eval()
+    if not npz_path:
+        return  # no NPZ yet — output empty geometry, wait for Generate
 
-geo = node.geometry()
-data       = np.load(npz_path)
-posed      = data["posed_joints"]    # (T, 77, 3)
-local_rots = data["local_rot_mats"]  # (T, 77, 3, 3)
-T          = posed.shape[0]
+    geo = node.geometry()
+    data       = np.load(npz_path)
+    posed      = data["posed_joints"]    # (T, 77, 3)
+    local_rots = data["local_rot_mats"]  # (T, 77, 3, 3)
+    T          = posed.shape[0]
 
-frame = hda_node.parm("frame_ref").eval() - 1
-frame = max(0, min(frame, T - 1))
+    frame = hda_node.parm("frame_ref").eval() - 1
+    frame = max(0, min(frame, T - 1))
 
-frame_pos  = posed[frame]
-frame_rots = local_rots[frame]
+    frame_pos  = posed[frame]
+    frame_rots = local_rots[frame]
 
-_ID16 = (1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1.)
-geo.addAttrib(hou.attribType.Point, "name",           "")
-geo.addAttrib(hou.attribType.Point, "parent_id",      -1)
-geo.addAttrib(hou.attribType.Point, "localtransform", _ID16)
+    _ID16 = (1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1.)
+    geo.addAttrib(hou.attribType.Point, "name",           "")
+    geo.addAttrib(hou.attribType.Point, "parent_id",      -1)
+    geo.addAttrib(hou.attribType.Point, "localtransform", _ID16)
 
-for i, (name, parent) in enumerate(zip(SOMA77_JOINTS, SOMA77_PARENTS)):
-    pt = geo.createPoint()
-    pt.setPosition(hou.Vector3(frame_pos[i].tolist()))
-    pt.setAttribValue("name",           name)
-    pt.setAttribValue("parent_id",      parent)
-    pt.setAttribValue("localtransform", _make_mat4(frame_rots[i], frame_pos[i]))
+    for i, (name, parent) in enumerate(zip(SOMA77_JOINTS, SOMA77_PARENTS)):
+        pt = geo.createPoint()
+        pt.setPosition(hou.Vector3(frame_pos[i].tolist()))
+        pt.setAttribValue("name",           name)
+        pt.setAttribValue("parent_id",      parent)
+        pt.setAttribValue("localtransform", _make_mat4(frame_rots[i], frame_pos[i]))
 
-pts = list(geo.points())
-for i, parent in enumerate(SOMA77_PARENTS):
-    if parent >= 0:
-        prim = geo.createPolygon()
-        prim.setIsClosed(False)
-        prim.addVertex(pts[parent])
-        prim.addVertex(pts[i])
+    pts = list(geo.points())
+    for i, parent in enumerate(SOMA77_PARENTS):
+        if parent >= 0:
+            prim = geo.createPolygon()
+            prim.setIsClosed(False)
+            prim.addVertex(pts[parent])
+            prim.addVertex(pts[i])
+
+_cook()
 """
 
 _GENERATE_CB = r"""

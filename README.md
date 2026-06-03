@@ -184,9 +184,67 @@ All three should print version strings without import errors.
 
 ---
 
+## Step 4: Start the API Server
+
+Copy `kimodo_server.py` from this repo into the `kimodo/` directory alongside the compose file:
+
+```bash
+cp ../kimodo-houdini-bridge/kimodo_server.py .
+```
+
+Start the API service (mock mode — returns `dev_reference.npz` without re-running inference):
+
+```bash
+docker compose -f docker-compose.hybrid.yaml up api -d
+```
+
+Verify:
+
+```bash
+curl http://localhost:8001/health
+# {"status":"ok","mock_mode":true}
+
+curl -X POST http://localhost:8001/generate \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "a person walks forward", "duration": 3.0}'
+# {"npz_path":"/workspace/output/dev_reference.npz","prompt":"...","frames":90,"joints":77}
+```
+
+> **Port note:** Port 8000 is reserved by Docker Desktop on Windows. The API runs on **8001**.
+
+## Step 5: Connect from Houdini
+
+In the Houdini Python Shell:
+
+```python
+import requests
+
+resp = requests.post(
+    "http://localhost:8001/generate",
+    json={"prompt": "a person walks forward", "duration": 3.0},
+    timeout=30,
+)
+resp.raise_for_status()
+data = resp.json()
+print(data["npz_path"])  # /workspace/output/dev_reference.npz
+print(data["frames"])    # 90
+print(data["joints"])    # 77
+```
+
+Load the NPZ (Docker `/workspace/output/` maps to `./output/` on the host):
+
+```python
+import numpy as np
+
+host_path = data["npz_path"].replace("/workspace/output", "D:/dev/kimodo/output")
+motion = np.load(host_path)
+print(motion["posed_joints"].shape)  # (90, 77, 3)
+```
+
+---
+
 ## Next Steps
 
-- **Phase 2** — FastAPI wrapper: expose Kimodo as a local HTTP server for Houdini to call
 - **Phase 3** — HDA development: build a Houdini Digital Asset that drives skeleton animation from NPZ output
 - **Phase 4** — Caching, error handling, and UI polish
 

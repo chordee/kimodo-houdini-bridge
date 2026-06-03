@@ -46,3 +46,19 @@ services:
     depends_on:
       text-encoder:
         condition: service_healthy
+
+  api:
+    image: kimodo:1.0
+    container_name: kimodo-api
+    working_dir: /workspace
+    command: uvicorn kimodo_server:app --host 0.0.0.0 --port 8001 --reload
+    volumes:
+      - ./:/workspace
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/workspace/.cache/huggingface
+    ports:
+      - "8001:8001"
+    environment:
+      - MOCK_MODE=1
+      - OUTPUT_DIR=/workspace/output
+      - HF_HOME=/workspace/.cache/huggingface
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}

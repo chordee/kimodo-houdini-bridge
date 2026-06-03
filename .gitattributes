@@ -1,0 +1,8 @@
+# Ensure consistent line endings across platforms
+* text=auto
+
+# Force LF for files that run inside Linux containers
+*.sh text eol=lf
+*.py text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf

@@ -1,0 +1,14 @@
+output/
+.cache/
+*.npz
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Houdini
+*.hiplc
+*.hip
+*.hda
+backup/

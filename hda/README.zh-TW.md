@@ -108,6 +108,11 @@ Kimodo 模型變體：
 | `Kimodo-SOMA-SEED-v1.1` | 固定隨機種子——相同 prompt 每次輸出一致，便於重現 |
 | `Kimodo-SOMA-RP-v1` | RP 的前一版本 |
 
+### Force Regenerate
+**預設：** 關閉
+
+繞過伺服器快取，即使已存在相同 prompt、duration、model 的片段也強制重新推論。詳見 [快取](#快取)。
+
 ### Generate（按鈕）
 
 按下後，節點會向 `<API Server URL>/generate` 提交 prompt，並立即取得一個 job ID 返回。推論在伺服器端執行，背景執行緒會持續輪詢進度，因此 **Houdini 不會凍結、可繼續操作**。任務完成後會自動更新 **NPZ Path** 並重新 cook。
@@ -120,11 +125,19 @@ Kimodo 模型變體：
 
 ### Status
 
-唯讀欄位，顯示即時任務狀態：`Queued`、`Running... (N秒)`（含經過秒數）、`Done (N秒)`、`Failed` 或 `Cancelled`。由背景輪詢執行緒自動更新。
+唯讀欄位，顯示即時任務狀態：`Queued`、`Running... (N秒)`（含經過秒數）、`Done (N秒)`（命中快取時顯示 `Done (N秒) (cached)`）、`Failed` 或 `Cancelled`。由背景輪詢執行緒自動更新。
 
 ### NPZ Path
 
 主機端 NPZ 檔案的完整路徑，由 **Generate** 自動填入。也可以手動貼上任何現有的 NPZ 路徑（例如用 CLI 單獨生成的片段），節點偵測到路徑變更後會自動重新載入，不需要重新生成。
+
+---
+
+## 快取
+
+伺服器以 `prompt + duration + model` 的 MD5 作為快取鍵，並用該雜湊值當輸出檔名（例如 `a872d0b….npz`），旁邊附一個 `.json` metadata 檔（prompt、duration、model、幀數、時間戳）。當 **Generate** 的參數與既有片段相同時，會即時回傳該檔——**Status** 顯示 `Done (cached)`，不會執行推論。
+
+若要強制重新生成（例如 `SEED` 模型變體，或想換一個不同的結果），開啟 **Force Regenerate**。若要清除快取，刪除 **Host Output Dir** 中對應的 `.npz`／`.json` 檔即可。
 
 ---
 

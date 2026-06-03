@@ -103,6 +103,7 @@ try:
             "prompt":   node.parm("prompt").eval(),
             "duration": node.parm("duration").eval(),
             "model":    node.parm("model").evalAsString(),
+            "force":    bool(node.parm("force").eval()),
         },
         timeout=30,
     )
@@ -152,8 +153,9 @@ else:
             if status == "done":
                 npz = data["npz_path"].replace("/workspace/output", host_output)
                 frames, joints = data["frames"], data["joints"]
+                done_label = f"Done{elapsed_str}" + (" (cached)" if data.get("cached") else "")
                 def _finish():
-                    node.parm("status").set(f"Done{elapsed_str}")
+                    node.parm("status").set(done_label)
                     node.parm("npz_path").set(npz)
                     node.parm("job_id").set("")
                     node.cook(force=True)
@@ -229,6 +231,11 @@ ptg.append(hou.MenuParmTemplate(
     ("Kimodo-SOMA-RP-v1.1", "Kimodo-SOMA-SEED-v1.1", "Kimodo-SOMA-RP-v1"),
     default_value=0,
 ))
+ptg.append(hou.ToggleParmTemplate(
+    "force", "Force Regenerate",
+    default_value=False,
+    help="Bypass the server cache and re-run inference even if a matching clip exists.",
+))
 _CANCEL_CB = r"""
 import requests, hou
 
@@ -267,6 +274,12 @@ ptg.append(hou.StringParmTemplate(
 ptg.append(hou.StringParmTemplate(
     "job_id", "Job ID", 1,
     default_value=("",),
+    is_hidden=True,
+))
+ptg.append(hou.IntParmTemplate(
+    "frame_ref", "Frame", 1,
+    default_expression=("$F",),
+    default_expression_language=(hou.scriptLanguage.Hscript,),
     is_hidden=True,
 ))
 ptg.append(hou.SeparatorParmTemplate("sep_npz"))

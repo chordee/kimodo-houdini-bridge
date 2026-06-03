@@ -49,6 +49,10 @@ Duration (s):
 Model:
     Kimodo model variant to use. Default: Kimodo-SOMA-RP-v1.1.
 
+Force Regenerate:
+    Bypass the server cache and re-run inference even if a clip with the
+    same prompt, duration, and model already exists.
+
 Generate:
     Submits the prompt to `<Server URL>/generate` and returns immediately
     with a job ID. Inference runs on the server while a background thread
@@ -108,6 +112,9 @@ Hips (0)
   environment to enable live generation.
 * Port 8000 is reserved by Docker Desktop on Windows; the API server runs
   on port __8001__ by default.
+* Results are cached by prompt + duration + model. Re-running with identical
+  settings returns instantly (Status shows "Done (cached)"); enable
+  __Force Regenerate__ to bypass the cache.
 * Connect localtransform output to __Rig Pose SOP__ for KineFX rig binding.
 
 @related

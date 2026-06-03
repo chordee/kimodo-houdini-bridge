@@ -90,31 +90,90 @@ for i, (name, parent) in enumerate(zip(SOMA77_JOINTS, SOMA77_PARENTS)):
 """
 
 _GENERATE_CB = r"""
-import requests, hou
+import threading, time, requests, hou
 
 node        = kwargs["node"]
 url         = node.parm("server_url").eval().rstrip("/")
 host_output = node.parm("host_output_dir").eval().rstrip("/")
 
-resp = requests.post(
-    f"{url}/generate",
-    json={
-        "prompt":   node.parm("prompt").eval(),
-        "duration": node.parm("duration").eval(),
-        "model":    node.parm("model").evalAsString(),
-    },
-    timeout=node.parm("timeout").eval(),
-)
-resp.raise_for_status()
-result = resp.json()
+try:
+    resp = requests.post(
+        f"{url}/generate",
+        json={
+            "prompt":   node.parm("prompt").eval(),
+            "duration": node.parm("duration").eval(),
+            "model":    node.parm("model").evalAsString(),
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+except Exception as e:
+    hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
+    node.parm("status").set(f"Error: {e}")
+else:
+    job_id = resp.json()["job_id"]
+    node.parm("job_id").set(job_id)
+    node.parm("status").set(f"Queued ({job_id[:8]}...)")
 
-npz_path = result["npz_path"].replace("/workspace/output", host_output)
-node.parm("npz_path").set(npz_path)
-node.cook(force=True)
-hou.ui.displayMessage(
-    f"Generated {result['frames']} frames ({result['joints']} joints).",
-    title="Kimodo",
-)
+    def _poll():
+        # HOM/UI calls are not thread-safe: marshal them to the main thread.
+        import hdefereval
+        def _set(parm, val):
+            hdefereval.executeInMainThreadWithResult(lambda: node.parm(parm).set(val))
+        def _msg(text, severity=None):
+            if severity is None:
+                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, title="Kimodo"))
+            else:
+                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, severity=severity, title="Kimodo"))
+        fails = 0
+        while True:
+            time.sleep(5)
+            # stop if a newer Generate has replaced this job
+            if hdefereval.executeInMainThreadWithResult(lambda: node.parm("job_id").eval()) != job_id:
+                break
+            try:
+                r = requests.get(f"{url}/jobs/{job_id}", timeout=10)
+                if r.status_code == 404:
+                    _set("status", "Job lost (server restarted?)")
+                    _set("job_id", "")
+                    break
+                r.raise_for_status()
+                data = r.json()
+                fails = 0
+            except Exception as e:
+                fails += 1
+                _set("status", f"Poll error ({fails}/3): {e}")
+                if fails >= 3:
+                    break
+                continue
+            status  = data["status"]
+            elapsed = data.get("elapsed")
+            elapsed_str = f" ({int(elapsed)}s)" if elapsed else ""
+            if status == "done":
+                npz = data["npz_path"].replace("/workspace/output", host_output)
+                frames, joints = data["frames"], data["joints"]
+                def _finish():
+                    node.parm("status").set(f"Done{elapsed_str}")
+                    node.parm("npz_path").set(npz)
+                    node.parm("job_id").set("")
+                    node.cook(force=True)
+                hdefereval.executeInMainThreadWithResult(_finish)
+                _msg(f"Generated {frames} frames ({joints} joints){elapsed_str}.")
+                break
+            elif status in ("failed", "cancelled"):
+                err = data.get("error")
+                _set("status", f"{status.capitalize()}: {err[:60]}" if err else status.capitalize())
+                if status == "failed":
+                    _msg(f"Generation failed:\n{err}", severity=hou.severityType.Error)
+                break
+            else:
+                _set("status", f"Running...{elapsed_str}")
+
+    threading.Thread(target=_poll, daemon=True).start()
+    hou.ui.displayMessage(
+        "Generation started in background.\nHoudini will update automatically when done.",
+        title="Kimodo",
+    )
 """
 
 # ── build Houdini scene ──────────────────────────────────────────────────────
@@ -170,15 +229,45 @@ ptg.append(hou.MenuParmTemplate(
     ("Kimodo-SOMA-RP-v1.1", "Kimodo-SOMA-SEED-v1.1", "Kimodo-SOMA-RP-v1"),
     default_value=0,
 ))
+_CANCEL_CB = r"""
+import requests, hou
+
+node   = kwargs["node"]
+url    = node.parm("server_url").eval().rstrip("/")
+job_id = node.parm("job_id").eval()
+if not job_id:
+    hou.ui.displayMessage("No active job to cancel.", title="Kimodo")
+else:
+    try:
+        r = requests.post(f"{url}/jobs/{job_id}/cancel", timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
+    else:
+        node.parm("status").set("Cancelled")
+        node.parm("job_id").set("")
+"""
+
 ptg.append(hou.ButtonParmTemplate(
     "generate", "Generate",
     script_callback=_GENERATE_CB,
     script_callback_language=hou.scriptLanguage.Python,
+    join_with_next=True,
 ))
-ptg.append(hou.FloatParmTemplate(
-    "timeout", "Timeout (s)", 1,
-    default_value=(900.0,), min=60.0, max=1800.0,
-    help="HTTP request timeout in seconds. Increase if inference takes longer than expected.",
+ptg.append(hou.ButtonParmTemplate(
+    "cancel", "Cancel",
+    script_callback=_CANCEL_CB,
+    script_callback_language=hou.scriptLanguage.Python,
+))
+ptg.append(hou.StringParmTemplate(
+    "status", "Status", 1,
+    default_value=("",),
+    help="Current job status. Updated automatically by Generate.",
+))
+ptg.append(hou.StringParmTemplate(
+    "job_id", "Job ID", 1,
+    default_value=("",),
+    is_hidden=True,
 ))
 ptg.append(hou.SeparatorParmTemplate("sep_npz"))
 ptg.append(hou.StringParmTemplate(

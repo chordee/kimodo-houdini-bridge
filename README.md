@@ -18,7 +18,7 @@ The bridge provides:
 
 - **`docker-compose.hybrid.yaml`** — deploys Kimodo in Hybrid mode (diffusion on GPU, text encoder on CPU) with a FastAPI inference server
 - **`kimodo_server.py`** — a FastAPI wrapper that exposes `/generate` and `/health` endpoints; supports mock mode for development without running inference
-- **`kimodo_motion` HDA** — a Houdini SOP node that sends a prompt to the server, receives the output NPZ, and reconstructs the SOMA77 skeleton as KineFX-compatible geometry (77 points with `name`, `parent_id`, `localtransform`)
+- **`kimodo_motion` HDA** — a Houdini SOP node that sends a prompt to the server, receives the output NPZ, and reconstructs the SOMA77 skeleton as KineFX-compatible geometry. It has two outputs — a per-frame animated skeleton and a static T-pose rest skeleton — with bones drawn as polyline primitives and joint `transform` / `localtransform` attributes in Houdini's row-vector convention (see [HDA Documentation](hda/README.md) for the full attribute layout)
 
 ---
 

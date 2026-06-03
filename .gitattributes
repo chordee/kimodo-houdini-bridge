@@ -6,3 +6,7 @@
 *.py text eol=lf
 *.yaml text eol=lf
 *.yml text eol=lf
+*.json text eol=lf
+
+# Houdini unpacked HDA sections — must stay LF for hotl to repack correctly
+hda/**/* text eol=lf

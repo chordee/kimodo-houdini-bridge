@@ -15,8 +15,8 @@ generates skeleton animation from a natural language description.
 
 Press __Generate__ to send a POST request to the API server.
 The resulting NPZ file is loaded and the skeleton is rebuilt on every
-frame, driving 77 SOMA joints as points with `name`, `parent_id`, and
-`localtransform` attributes.
+frame, driving 77 SOMA joints as points with KineFX `name`, `transform`,
+and `localtransform` attributes.
 
 == Quick Start ==
 
@@ -73,25 +73,22 @@ NPZ Path:
 
 == Output Geometry ==
 
-The node outputs one point per joint (77 total, SOMA skeleton):
+The node has two outputs, both 77-joint SOMA skeletons with polyline
+primitives connecting each parent-child pair. World rotations are stored
+in Houdini's row-vector convention (transposed from Kimodo's matrices).
 
-table>>
-    tr>>
-        th>> Attribute
-        th>> Type
-        th>> Description
-    tr>>
-        td>> `name`
-        td>> string
-        td>> Joint name (e.g. Hips, LeftArm, RightFoot)
-    tr>>
-        td>> `parent_id`
-        td>> int
-        td>> Parent joint index; -1 for root (Hips)
-    tr>>
-        td>> `localtransform`
-        td>> float[16]
-        td>> Local rotation matrix + position (row-major 4x4)
+:output0:
+    Animated skeleton — rebuilds every frame from the NPZ file. Carries
+    `name`, `path`, `parent_id`, `transform` (float[9] world-space
+    rotation) and `localtransform` (float[16] local 4x4, row-major).
+
+:output1:
+    T-pose (rest) skeleton — static, does not depend on the NPZ. Carries
+    `name` and `transform` (float[9] world-space rotation); joint
+    positions are the SOMA77 neutral pose from Kimodo's skeleton definition.
+
+Connect output0 to a __Rig Pose SOP__ for KineFX rig binding; use output1
+as the rest skeleton for __Bone Capture__ or __Skin SOP__.
 
 == SOMA77 Skeleton Hierarchy ==
 

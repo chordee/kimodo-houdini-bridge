@@ -67,8 +67,16 @@
         label   "Generate"
         type    button
         default { "0" }
-        parmtag { "script_callback" "\nimport requests, hou\n\nnode        = kwargs[\"node\"]\nurl         = node.parm(\"server_url\").eval().rstrip(\"/\")\nhost_output = node.parm(\"host_output_dir\").eval().rstrip(\"/\")\n\nresp = requests.post(\n    f\"{url}/generate\",\n    json={\n        \"prompt\":   node.parm(\"prompt\").eval(),\n        \"duration\": node.parm(\"duration\").eval(),\n        \"model\":    node.parm(\"model\").evalAsString(),\n    },\n    timeout=300,\n)\nresp.raise_for_status()\nresult = resp.json()\n\nnpz_path = result[\"npz_path\"].replace(\"/workspace/output\", host_output)\nnode.parm(\"npz_path\").set(npz_path)\nnode.cook(force=True)\nhou.ui.displayMessage(\n    f\"Generated {result['frames']} frames ({result['joints']} joints).\",\n    title=\"Kimodo\",\n)\n" }
+        parmtag { "script_callback" "\nimport requests, hou\n\nnode        = kwargs[\"node\"]\nurl         = node.parm(\"server_url\").eval().rstrip(\"/\")\nhost_output = node.parm(\"host_output_dir\").eval().rstrip(\"/\")\n\nresp = requests.post(\n    f\"{url}/generate\",\n    json={\n        \"prompt\":   node.parm(\"prompt\").eval(),\n        \"duration\": node.parm(\"duration\").eval(),\n        \"model\":    node.parm(\"model\").evalAsString(),\n    },\n    timeout=node.parm(\"timeout\").eval(),\n)\nresp.raise_for_status()\nresult = resp.json()\n\nnpz_path = result[\"npz_path\"].replace(\"/workspace/output\", host_output)\nnode.parm(\"npz_path\").set(npz_path)\nnode.cook(force=True)\nhou.ui.displayMessage(\n    f\"Generated {result['frames']} frames ({result['joints']} joints).\",\n    title=\"Kimodo\",\n)\n" }
         parmtag { "script_callback_language" "python" }
+    }
+    parm {
+        name    "timeout"
+        label   "Timeout (s)"
+        type    float
+        default { "900" }
+        range   { 60 1800 }
+        help    "HTTP request timeout in seconds. Increase if inference takes longer than expected."
     }
     parm {
         name    "sep_npz"

@@ -30,13 +30,28 @@ the [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model, outputting a
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| API Server URL | `http://localhost:8001` | Running `kimodo_server` FastAPI service |
-| Host Output Dir | _(your kimodo output path)_ | Host path mapped to `/workspace/output` in Docker |
-| Prompt | `a person walks forward` | Natural language motion description |
-| Duration (s) | `3.0` | Motion length in seconds |
-| Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant |
-| **Generate** | — | POST to API, update NPZ, recook |
-| NPZ Path | _(auto-set by Generate)_ | Path to the output `.npz` file |
+| API Server URL | `http://localhost:8001` | URL of the running `kimodo_server` FastAPI service. Change only if you moved the server to a different host or port. |
+| Host Output Dir | _(your kimodo output path)_ | The host-side directory that is volume-mounted to `/workspace/output` inside Docker. The server writes NPZ files here and returns their in-container path; the node rewrites the prefix so Houdini can read the file directly. Must match the volume mount in `docker-compose.hybrid.yaml`. |
+| Prompt | `a person walks forward` | Natural language description of the desired motion. Be specific: body part, direction, speed, and style all influence the result. Examples: `"a person jogs in a circle"`, `"someone waves with their right hand"`. |
+| Duration (s) | `3.0` | Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames. Longer clips take more inference time. |
+| Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` (Reference Pose) conditions on a rest pose; `SEED` uses a fixed random seed for reproducibility. |
+| **Generate** | — | Sends a POST request to `<API Server URL>/generate`, waits for the server to run inference, then writes the result to **NPZ Path** and recooks the node. Houdini will appear frozen during inference — this is expected. |
+| Timeout (s) | `900` | Maximum seconds to wait for the server to respond. The default (15 min) covers first-run model loading from HuggingFace. Reduce on fast machines; increase if you see timeout errors. |
+| NPZ Path | _(auto-set by Generate)_ | Path on the **host** to the `.npz` file produced by Kimodo. Set automatically by **Generate**; you can also set it manually to load any pre-existing NPZ file (e.g. a clip generated via the CLI) without pressing Generate. The node recooks whenever this path changes. |
+
+#### What is an NPZ file?
+
+An NPZ file (NumPy compressed archive) is the output format of Kimodo inference. Each file contains a complete motion clip as arrays:
+
+| Key | Shape | Content |
+|-----|-------|---------|
+| `posed_joints` | `(T, 77, 3)` | World-space joint positions in metres, T frames |
+| `local_rot_mats` | `(T, 77, 3, 3)` | Local rotation matrices — drives `localtransform` |
+| `global_rot_mats` | `(T, 77, 3, 3)` | Global rotation matrices |
+| `root_positions` | `(T, 3)` | Root (Hips) world position |
+| `foot_contacts` | `(T, 6)` | Boolean foot-contact labels (6 SOMA contact points) |
+
+You can load any Kimodo NPZ directly — paste its host path into **NPZ Path** and the node will rebuild the skeleton for that clip.
 
 ### Prerequisites
 

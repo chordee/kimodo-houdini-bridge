@@ -103,7 +103,7 @@ resp = requests.post(
         "duration": node.parm("duration").eval(),
         "model":    node.parm("model").evalAsString(),
     },
-    timeout=300,
+    timeout=node.parm("timeout").eval(),
 )
 resp.raise_for_status()
 result = resp.json()
@@ -174,6 +174,11 @@ ptg.append(hou.ButtonParmTemplate(
     "generate", "Generate",
     script_callback=_GENERATE_CB,
     script_callback_language=hou.scriptLanguage.Python,
+))
+ptg.append(hou.FloatParmTemplate(
+    "timeout", "Timeout (s)", 1,
+    default_value=(900.0,), min=60.0, max=1800.0,
+    help="HTTP request timeout in seconds. Increase if inference takes longer than expected.",
 ))
 ptg.append(hou.SeparatorParmTemplate("sep_npz"))
 ptg.append(hou.StringParmTemplate(

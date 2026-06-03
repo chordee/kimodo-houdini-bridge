@@ -1,0 +1,85 @@
+# Dialog script for kimodo_motion automatically generated
+
+{
+    name	kimodo_motion
+    script	kimodo_motion
+    label	"Kimodo Motion Generator"
+
+    help {
+    }
+
+    inputlabel	1	"Sub-Network Input #1"
+    inputlabel	2	"Sub-Network Input #2"
+    inputlabel	3	"Sub-Network Input #3"
+    inputlabel	4	"Sub-Network Input #4"
+
+    parm {
+        name    "sep_api"
+        label   ""
+        type    separator
+        default { "" }
+    }
+    parm {
+        name    "server_url"
+        label   "API Server URL"
+        type    string
+        default { "http://localhost:8001" }
+    }
+    parm {
+        name    "host_output_dir"
+        label   "Host Output Dir"
+        type    string
+        default { "D:/dev/kimodo/output" }
+        help    "Host-side path mapped to /workspace/output inside Docker."
+    }
+    parm {
+        name    "sep_gen"
+        label   ""
+        type    separator
+        default { "" }
+    }
+    parm {
+        name    "prompt"
+        label   "Prompt"
+        type    string
+        default { "a person walks forward" }
+    }
+    parm {
+        name    "duration"
+        label   "Duration (s)"
+        type    float
+        default { "3" }
+        range   { 0.5 30 }
+    }
+    parm {
+        name    "model"
+        label   "Model"
+        type    ordinal
+        default { "0" }
+        menu {
+            "Kimodo-SOMA-RP-v1.1"   "Kimodo-SOMA-RP-v1.1"
+            "Kimodo-SOMA-SEED-v1.1" "Kimodo-SOMA-SEED-v1.1"
+            "Kimodo-SOMA-RP-v1"     "Kimodo-SOMA-RP-v1"
+        }
+    }
+    parm {
+        name    "generate"
+        label   "Generate"
+        type    button
+        default { "0" }
+        parmtag { "script_callback" "\nimport requests, hou\n\nnode        = kwargs[\"node\"]\nurl         = node.parm(\"server_url\").eval().rstrip(\"/\")\nhost_output = node.parm(\"host_output_dir\").eval().rstrip(\"/\")\n\nresp = requests.post(\n    f\"{url}/generate\",\n    json={\n        \"prompt\":   node.parm(\"prompt\").eval(),\n        \"duration\": node.parm(\"duration\").eval(),\n        \"model\":    node.parm(\"model\").eval(),\n    },\n    timeout=300,\n)\nresp.raise_for_status()\nresult = resp.json()\n\nnpz_path = result[\"npz_path\"].replace(\"/workspace/output\", host_output)\nnode.parm(\"npz_path\").set(npz_path)\nnode.cook(force=True)\nhou.ui.displayMessage(\n    f\"Generated {result['frames']} frames ({result['joints']} joints).\",\n    title=\"Kimodo\",\n)\n" }
+        parmtag { "script_callback_language" "python" }
+    }
+    parm {
+        name    "sep_npz"
+        label   ""
+        type    separator
+        default { "" }
+    }
+    parm {
+        name    "npz_path"
+        label   "NPZ Path"
+        type    string
+        default { "D:/dev/kimodo/output/dev_reference.npz" }
+    }
+}

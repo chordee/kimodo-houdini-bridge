@@ -1,0 +1,105 @@
+= Kimodo Motion Generator =
+
+#type: node
+#context: sop
+#tags: kimodo, motion, ai, kinefx, animation
+
+Generates 3D human motion from a text prompt using NVIDIA Kimodo,
+outputting a 77-joint SOMA skeleton compatible with Houdini KineFX.
+
+== Overview ==
+
+The Kimodo Motion Generator node connects to a locally running
+[Kimodo|https://github.com/nv-tlabs/kimodo] inference server and
+generates skeleton animation from a natural language description.
+
+Press __Generate__ to send a POST request to the API server.
+The resulting NPZ file is loaded and the skeleton is rebuilt on every
+frame, driving 77 SOMA joints as points with `name`, `parent_id`, and
+`localtransform` attributes.
+
+== Quick Start ==
+
+# Start the Docker services (text-encoder + api) as described in the README.
+# Set __Prompt__ to describe the desired motion.
+# Set __Duration__ in seconds.
+# Press __Generate__. The node cooks automatically when the NPZ is ready.
+# Set the Houdini frame range to match __Frame Count__ and play back.
+
+Connect the output to a __Rig Pose SOP__ or any KineFX node that accepts
+a packed skeleton with `localtransform`.
+
+== Parameters ==
+
+Server URL:
+    URL of the running `kimodo_server` FastAPI service.
+    Default: `http://localhost:8001`
+
+Host Output Dir:
+    The host-side directory mapped to `/workspace/output` inside Docker.
+    Must contain `dev_reference.npz` when running in mock mode.
+
+Prompt:
+    Natural language description of the desired motion.
+    Examples: "a person walks forward", "someone waves their hand".
+
+Duration (s):
+    Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames.
+
+Model:
+    Kimodo model variant to use. Default: Kimodo-SOMA-RP-v1.1.
+
+Generate:
+    Sends a POST to `<Server URL>/generate` and writes the result path
+    to __NPZ Path__. The node recooks automatically.
+
+NPZ Path:
+    Path to the NPZ file from the last Generate call.
+    Can be set manually to load a pre-existing NPZ.
+
+== Output Geometry ==
+
+The node outputs one point per joint (77 total, SOMA skeleton):
+
+table>>
+    tr>>
+        th>> Attribute
+        th>> Type
+        th>> Description
+    tr>>
+        td>> `name`
+        td>> string
+        td>> Joint name (e.g. Hips, LeftArm, RightFoot)
+    tr>>
+        td>> `parent_id`
+        td>> int
+        td>> Parent joint index; -1 for root (Hips)
+    tr>>
+        td>> `localtransform`
+        td>> float[16]
+        td>> Local rotation matrix + position (row-major 4x4)
+
+== SOMA77 Skeleton Hierarchy ==
+
+{{{
+Hips (0)
+  Spine1-Spine2-Chest
+    Neck1-Neck2-Head-HeadEnd/Jaw/LeftEye/RightEye
+    LeftShoulder-LeftArm-LeftForeArm-LeftHand  [+ fingers 15-38]
+    RightShoulder-RightArm-RightForeArm-RightHand  [+ fingers 43-66]
+  LeftLeg-LeftShin-LeftFoot-LeftToeBase-LeftToeEnd  [67-71]
+  RightLeg-RightShin-RightFoot-RightToeBase-RightToeEnd  [72-76]
+}}}
+
+== Notes ==
+
+* The node runs in __mock mode__ by default (returns dev_reference.npz
+  without re-running inference). Set MOCK_MODE=0 in the Docker compose
+  environment to enable live generation.
+* Port 8000 is reserved by Docker Desktop on Windows; the API server runs
+  on port __8001__ by default.
+* Connect localtransform output to __Rig Pose SOP__ for KineFX rig binding.
+
+@related
+- [Rig Pose SOP|Node:sop/rigpose]
+- [Bone Deform SOP|Node:sop/bonedeform]

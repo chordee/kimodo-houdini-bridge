@@ -1,0 +1,14 @@
+Operator:     kimodo_motion
+Label:        Kimodo Motion Generator
+Path:         oplib:/Sop/kimodo_motion?Sop/kimodo_motion
+Icon:         SOP_subnet
+Table:        Sop
+License:      
+Extra:        
+User:         
+Inputs:       0 to 0
+Subnet:       true
+Python:       false
+Empty:        false
+Modified:     Wed Jun  3 20:10:31 2026
+

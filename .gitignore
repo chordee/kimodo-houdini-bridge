@@ -7,7 +7,9 @@ output/
 __pycache__/
 *.pyc
 
-# Houdini (scene files only; .hda is tracked)
+# Houdini (scene files only; unpacked .hda directories are tracked)
 *.hiplc
 *.hip
 backup/
+# Exclude packed binary HDA at repo root (only hda/ unpacked format is canonical)
+/kimodo_motion.hda

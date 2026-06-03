@@ -1,0 +1,190 @@
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY"
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="node_type"
+Content-Type: text/plain
+
+Sop
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot.init"
+Content-Type: text/plain
+
+type = kimodo_motion
+matchesdef = 0
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot.def"
+Content-Type: text/plain
+
+sopflags sopflags = 
+comment ""
+position 0 0
+connectornextid 0
+flags =  lock off model off template off footprint off xray off bypass off display on render on highlight off unload off savedata off compress on colordefault on exposed on
+outputsNamed3
+{
+}
+inputsNamed3
+{
+}
+inputs
+{
+}
+stat
+{
+  create -1
+  modify -1
+  author chordee@LAPTOP-ULJICLO8
+  access 0777
+}
+color UT_Color RGB 0.8 0.8 0.8 
+delscript ""
+exprlanguage hscript
+end
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot.userdata"
+Content-Type: text/plain
+
+{
+	"___Version___":{
+		"type":"string",
+		"value":""
+	}
+}
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot/gen_sop.init"
+Content-Type: text/plain
+
+type = python
+matchesdef = 1
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot/gen_sop.def"
+Content-Type: text/plain
+
+sopflags sopflags = 
+comment ""
+position 0 -5.55112e-17
+connectornextid 0
+flags =  lock off model off template off footprint off xray off bypass off display on render on highlight off unload off savedata off compress on colordefault on exposed on
+outputsNamed3
+{
+}
+inputsNamed3
+{
+}
+inputs
+{
+}
+stat
+{
+  create -1
+  modify -1
+  author chordee@LAPTOP-ULJICLO8
+  access 0777
+}
+color UT_Color RGB 0.8 0.8 0.8 
+delscript ""
+exprlanguage hscript
+end
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot/gen_sop.parm"
+Content-Type: text/plain
+
+{
+version 0.8
+python	[ 0	locks=0 ]	(	"
+import numpy as np
+import hou
+
+SOMA77_JOINTS = [
+    \"Hips\",\"Spine1\",\"Spine2\",\"Chest\",\"Neck1\",\"Neck2\",\"Head\",\"HeadEnd\",
+    \"Jaw\",\"LeftEye\",\"RightEye\",
+    \"LeftShoulder\",\"LeftArm\",\"LeftForeArm\",\"LeftHand\",
+    \"LeftHandThumb1\",\"LeftHandThumb2\",\"LeftHandThumb3\",\"LeftHandThumbEnd\",
+    \"LeftHandIndex1\",\"LeftHandIndex2\",\"LeftHandIndex3\",\"LeftHandIndex4\",\"LeftHandIndexEnd\",
+    \"LeftHandMiddle1\",\"LeftHandMiddle2\",\"LeftHandMiddle3\",\"LeftHandMiddle4\",\"LeftHandMiddleEnd\",
+    \"LeftHandRing1\",\"LeftHandRing2\",\"LeftHandRing3\",\"LeftHandRing4\",\"LeftHandRingEnd\",
+    \"LeftHandPinky1\",\"LeftHandPinky2\",\"LeftHandPinky3\",\"LeftHandPinky4\",\"LeftHandPinkyEnd\",
+    \"RightShoulder\",\"RightArm\",\"RightForeArm\",\"RightHand\",
+    \"RightHandThumb1\",\"RightHandThumb2\",\"RightHandThumb3\",\"RightHandThumbEnd\",
+    \"RightHandIndex1\",\"RightHandIndex2\",\"RightHandIndex3\",\"RightHandIndex4\",\"RightHandIndexEnd\",
+    \"RightHandMiddle1\",\"RightHandMiddle2\",\"RightHandMiddle3\",\"RightHandMiddle4\",\"RightHandMiddleEnd\",
+    \"RightHandRing1\",\"RightHandRing2\",\"RightHandRing3\",\"RightHandRing4\",\"RightHandRingEnd\",
+    \"RightHandPinky1\",\"RightHandPinky2\",\"RightHandPinky3\",\"RightHandPinky4\",\"RightHandPinkyEnd\",
+    \"LeftLeg\",\"LeftShin\",\"LeftFoot\",\"LeftToeBase\",\"LeftToeEnd\",
+    \"RightLeg\",\"RightShin\",\"RightFoot\",\"RightToeBase\",\"RightToeEnd\",
+]
+SOMA77_PARENTS = [
+    -1,0,1,2,3,4,5,6,6,6,6,
+    3,11,12,13,14,15,16,17,14,19,20,21,22,14,24,25,26,27,14,29,30,31,32,14,34,35,36,37,
+    3,39,40,41,42,43,44,45,42,47,48,49,50,42,52,53,54,55,42,57,58,59,60,42,62,63,64,65,
+    0,67,68,69,70,0,72,73,74,75,
+]
+
+def _make_mat4(rot, pos):
+    # Store as tuple[16] — Houdini interprets float[16] as matrix4 for localtransform
+    return (
+        float(rot[0,0]),float(rot[0,1]),float(rot[0,2]),0.,
+        float(rot[1,0]),float(rot[1,1]),float(rot[1,2]),0.,
+        float(rot[2,0]),float(rot[2,1]),float(rot[2,2]),0.,
+        float(pos[0]),  float(pos[1]),  float(pos[2]),  1.,
+    )
+
+node     = hou.pwd()
+hda_node = node.parent()     # subnet SOP = the HDA wrapper
+
+npz_path = hda_node.parm(\"npz_path\").eval()
+if not npz_path:
+    raise hou.NodeError(\"npz_path is empty — set it or press Generate first.\")
+
+geo = node.geometry()
+data       = np.load(npz_path)
+posed      = data[\"posed_joints\"]    # (T, 77, 3)
+local_rots = data[\"local_rot_mats\"]  # (T, 77, 3, 3)
+T          = posed.shape[0]
+
+frame = int(hou.frame()) - 1
+frame = max(0, min(frame, T - 1))
+
+frame_pos  = posed[frame]
+frame_rots = local_rots[frame]
+
+_ID16 = (1.,0.,0.,0., 0.,1.,0.,0., 0.,0.,1.,0., 0.,0.,0.,1.)
+geo.addAttrib(hou.attribType.Point, \"name\",           \"\")
+geo.addAttrib(hou.attribType.Point, \"parent_id\",      -1)
+geo.addAttrib(hou.attribType.Point, \"localtransform\", _ID16)
+
+for i, (name, parent) in enumerate(zip(SOMA77_JOINTS, SOMA77_PARENTS)):
+    pt = geo.createPoint()
+    pt.setPosition(hou.Vector3(frame_pos[i].tolist()))
+    pt.setAttribValue(\"name\",           name)
+    pt.setAttribValue(\"parent_id\",      parent)
+    pt.setAttribValue(\"localtransform\", _make_mat4(frame_rots[i], frame_pos[i]))
+"	)
+maintainstate	[ 0	locks=0 ]	(	"off"	)
+}
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot/gen_sop.userdata"
+Content-Type: text/plain
+
+{
+	"___Version___":{
+		"type":"string",
+		"value":"___EXTERNAL___"
+	}
+}
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
+Content-Disposition: attachment; filename="hdaroot.net"
+Content-Type: text/plain
+
+1
+
+--HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY--

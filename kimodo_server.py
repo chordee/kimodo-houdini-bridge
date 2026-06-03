@@ -51,7 +51,7 @@ class JobStatus(BaseModel):
 
 def _cache_key(prompt: str, duration: float, model: str) -> str:
     payload = json.dumps({"prompt": prompt, "duration": duration, "model": model}, sort_keys=True)
-    return hashlib.md5(payload.encode()).hexdigest()
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 @app.get("/health")

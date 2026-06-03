@@ -63,7 +63,7 @@ kimodo_motion SOP reads NPZ → outputs 77-point SOMA skeleton per frame
 
 ## Quick links
 
-- [Setup Guide](docs/setup.md) — step-by-step environment setup, Docker deployment, and HDA installation
+- [Setup Guide](docs/setup.md) ([繁體中文](docs/setup.zh-TW.md)) — step-by-step environment setup, Docker deployment, and HDA installation
 - [HDA Documentation](hda/README.md) — node parameters, output attributes, NPZ format explanation
 - [HDA Documentation (繁體中文)](hda/README.zh-TW.md)
 

@@ -1,5 +1,7 @@
 # Setup Guide
 
+[繁體中文](setup.zh-TW.md)
+
 This guide walks through the full environment setup, from Docker deployment to the Houdini HDA.
 
 ## Step 0: Environment Validation

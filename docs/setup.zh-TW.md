@@ -174,6 +174,7 @@ curl -X POST http://localhost:8001/generate \
 
 > **埠號說明：** 在 Windows 上，埠號 8000 由 Docker Desktop 佔用，因此 API 預設使用 **8001**。
 > 若要使用其他埠號：`KIMODO_PORT=8002 docker compose -f docker-compose.hybrid.yaml up api -d`
+> 若更改了埠號，記得同步修改 HDA 的 **API Server URL** 參數（例如 `http://localhost:8002`）。
 
 要啟用**即時推論（live inference）**，請先確認 `text-encoder` 已 healthy，再以 `MOCK_MODE=0` 重啟 api 服務：
 

@@ -174,6 +174,7 @@ curl -X POST http://localhost:8001/generate \
 
 > **Port note:** Port 8000 is reserved by Docker Desktop on Windows. The API defaults to **8001**.
 > To use a different port: `KIMODO_PORT=8002 docker compose -f docker-compose.hybrid.yaml up api -d`
+> If you change the port, update the HDA's **API Server URL** parameter to match (e.g. `http://localhost:8002`).
 
 To enable **live inference**, make sure `text-encoder` is healthy first, then restart the api service with `MOCK_MODE=0`:
 

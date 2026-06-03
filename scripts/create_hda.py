@@ -116,14 +116,23 @@ else:
     node.parm("status").set(f"Queued ({job_id[:8]}...)")
 
     def _poll():
+        fails = 0
         while True:
             time.sleep(5)
             try:
                 r = requests.get(f"{url}/jobs/{job_id}", timeout=10)
+                if r.status_code == 404:
+                    node.parm("status").set("Job lost (server restarted?)")
+                    node.parm("job_id").set("")
+                    break
                 r.raise_for_status()
                 data = r.json()
+                fails = 0
             except Exception as e:
-                node.parm("status").set(f"Poll error: {e}")
+                fails += 1
+                node.parm("status").set(f"Poll error ({fails}/3): {e}")
+                if fails >= 3:
+                    break
                 continue
             status  = data["status"]
             elapsed = data.get("elapsed")

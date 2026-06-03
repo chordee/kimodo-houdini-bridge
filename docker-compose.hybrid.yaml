@@ -51,7 +51,10 @@ services:
     image: kimodo:1.0
     container_name: kimodo-api
     working_dir: /workspace
-    command: uvicorn kimodo_server:app --host 0.0.0.0 --port ${KIMODO_PORT:-8001} --reload
+    # No --reload: it watches the mounted /workspace volume, and files written
+    # during inference (output NPZ, HF cache) would trigger a reload that wipes
+    # the in-memory job registry. Restart the container manually after editing.
+    command: uvicorn kimodo_server:app --host 0.0.0.0 --port ${KIMODO_PORT:-8001}
     volumes:
       - ./:/workspace
       - ${HF_HOME:-${HOME}/.cache/huggingface}:/workspace/.cache/huggingface

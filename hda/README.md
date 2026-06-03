@@ -1,5 +1,7 @@
 # HDA Library
 
+[繁體中文](README.zh-TW.md)
+
 This directory contains Houdini Digital Assets for the Kimodo-Houdini bridge.
 Each HDA is stored in **unpacked (VCS-friendly) format** — a directory ending in `.hda/`
 that can be diffed and reviewed in git.

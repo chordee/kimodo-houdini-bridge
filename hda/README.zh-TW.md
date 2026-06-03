@@ -1,0 +1,177 @@
+# HDA 函式庫（繁體中文說明）
+
+本目錄收錄 Kimodo-Houdini 橋接專案的 Houdini Digital Assets。  
+每個 HDA 以**解包（unpacked）格式**儲存——副檔名為 `.hda/` 的目錄，內容均為純文字，可在 git 中進行 diff 與 code review。
+
+---
+
+## kimodo_motion.hda
+
+**節點類型：** `Sop/kimodo_motion`  
+**使用環境：** SOP（幾何網路）  
+**最低 Houdini 版本：** H20.5
+
+這是一個 SOP 節點，透過本地執行的 NVIDIA Kimodo 推論伺服器，將自然語言提示（prompt）轉換為 3D 人體動作，輸出與 Houdini KineFX 相容的 77 關節 SOMA 骨架。
+
+---
+
+## 背景知識
+
+### NVIDIA Kimodo 是什麼？
+
+[Kimodo](https://github.com/nv-tlabs/kimodo) 是 NVIDIA 研究團隊開發的文字驅動 3D 動作生成模型，屬於擴散模型（diffusion model）架構。輸入一段自然語言描述，模型就會生成對應的人體骨架動畫序列。
+
+### SOMA77 骨架
+
+Kimodo 使用 **SOMA77** 骨架格式，共 77 個關節，以 `Hips`（索引 0）為根節點。骨架層級如下：
+
+```
+Hips (0)
+├── Spine1 → Spine2 → Chest
+│   ├── Neck1 → Neck2 → Head → HeadEnd
+│   │                        ├── Jaw
+│   │                        ├── LeftEye
+│   │                        └── RightEye
+│   ├── LeftShoulder → LeftArm → LeftForeArm → LeftHand
+│   │                                         └── 手指 15–38（拇指、食指、中指、無名指、小指）
+│   └── RightShoulder → RightArm → RightForeArm → RightHand
+│                                                └── 手指 43–66
+├── LeftLeg → LeftShin → LeftFoot → LeftToeBase → LeftToeEnd  (67–71)
+└── RightLeg → RightShin → RightFoot → RightToeBase → RightToeEnd  (72–76)
+```
+
+### NPZ 檔案是什麼？
+
+NPZ 是 NumPy 的壓縮封存格式（`.npz`），Kimodo 以此格式儲存推論結果。每個 NPZ 包含一段完整的動作片段，內含以下陣列：
+
+| 鍵值 | 形狀 | 說明 |
+|------|------|------|
+| `posed_joints` | `(T, 77, 3)` | 各關節的世界座標位置（單位：公尺），T 為幀數 |
+| `local_rot_mats` | `(T, 77, 3, 3)` | 各關節的局部旋轉矩陣，用於驅動 `localtransform` |
+| `global_rot_mats` | `(T, 77, 3, 3)` | 各關節的全域旋轉矩陣 |
+| `root_positions` | `(T, 3)` | 根節點（Hips）的世界座標位置 |
+| `foot_contacts` | `(T, 6)` | 足部接觸標記（布林值，SOMA 的 6 個接觸點） |
+
+你可以將任何 Kimodo 產生的 NPZ 檔路徑貼入 **NPZ Path** 參數，節點就會直接載入該片段並重建骨架，不需要重新按 Generate。
+
+---
+
+## 輸出幾何屬性
+
+節點每幀輸出 77 個點（對應 77 個 SOMA 關節），帶有以下屬性：
+
+| 屬性 | 型別 | 說明 |
+|------|------|------|
+| `name` | string | 關節名稱，例如 `Hips`、`LeftArm` |
+| `parent_id` | int | 父節點索引；根節點（Hips）為 `-1` |
+| `localtransform` | float[16] | 局部旋轉矩陣加位置，行主序 4×4，與 KineFX Rig Pose SOP 相容 |
+
+將輸出連接至 **Rig Pose SOP** 即可進行 KineFX 骨架綁定。
+
+---
+
+## 參數說明
+
+### API Server URL
+**預設：** `http://localhost:8001`
+
+正在執行的 `kimodo_server` FastAPI 服務網址。若伺服器部署在不同主機或埠號，請修改此欄位。
+
+### Host Output Dir
+
+Docker 容器內 `/workspace/output` 對應的**主機端**目錄路徑。伺服器將 NPZ 寫入此路徑，並以容器內路徑回傳；節點收到後會自動替換前綴，讓 Houdini 能直接讀取。此路徑必須與 `docker-compose.hybrid.yaml` 的 volume 掛載設定一致。
+
+### Prompt
+**預設：** `a person walks forward`
+
+描述目標動作的自然語言字串（目前僅支援英文）。描述越具體，結果越符合預期。建議包含：
+
+- 身體部位（全身 / 上半身 / 手部）
+- 方向與速度（forward、slowly、quickly）
+- 動作風格（jogs、waves、crouches）
+
+範例：`"a person jogs in a circle"`、`"someone waves with their right hand"`
+
+### Duration (s)
+**預設：** `3.0`
+
+動作片段長度（秒）。以 30 fps 計算，3 秒 = 90 幀。片段越長，推論所需時間越多。
+
+### Model
+**預設：** `Kimodo-SOMA-RP-v1.1`
+
+Kimodo 模型變體：
+
+| 變體 | 說明 |
+|------|------|
+| `Kimodo-SOMA-RP-v1.1` | Reference Pose——以靜止姿態為條件輸入，結果較穩定 |
+| `Kimodo-SOMA-SEED-v1.1` | 固定隨機種子——相同 prompt 每次輸出一致，便於重現 |
+| `Kimodo-SOMA-RP-v1` | RP 的前一版本 |
+
+### Generate（按鈕）
+
+按下後，節點會向 `<API Server URL>/generate` 發送 POST 請求，等待伺服器執行推論，將結果路徑寫入 **NPZ Path**，並強制重新 cook。推論期間 Houdini 介面會暫時無回應，屬於正常現象。
+
+**注意：** 在 mock mode（`MOCK_MODE=1`）下，伺服器不執行推論，直接回傳 `dev_reference.npz`——無論輸入什麼 prompt 結果都相同。切換至 production mode（`MOCK_MODE=0`）才會真正跑模型。
+
+### Timeout (s)
+**預設：** `900`
+
+等待伺服器回應的最長秒數（15 分鐘）。預設值涵蓋首次執行時從 HuggingFace 下載模型的時間。規格較高的機器可縮短；若遇到 timeout 錯誤則應加大。
+
+### NPZ Path
+
+主機端 NPZ 檔案的完整路徑，由 **Generate** 自動填入。也可以手動貼上任何現有的 NPZ 路徑（例如用 CLI 單獨生成的片段），節點偵測到路徑變更後會自動重新載入，不需要重新生成。
+
+---
+
+## 前置條件
+
+按下 **Generate** 前，以下 Docker 服務必須正在執行：
+
+```bash
+# 在 kimodo/ 目錄下執行
+docker compose -f docker-compose.hybrid.yaml up text-encoder -d  # 等待 healthy（首次約 5-10 分鐘）
+docker compose -f docker-compose.hybrid.yaml up api -d
+```
+
+---
+
+## 重建 HDA
+
+若修改了 `scripts/sop_cook.py` 或參數定義，需重新生成 HDA：
+
+```bash
+# 1. 重建 packed HDA
+hython scripts/create_hda.py "/path/to/kimodo/output/dev_reference.npz" "/path/to/kimodo/output"
+
+# 2. 加入 Help Card 並儲存至 hda/
+hython scripts/_add_help.py
+
+# 3. 解包為 VCS-friendly 格式
+mkdir hda/kimodo_motion.hda
+hotl -t hda/kimodo_motion.hda hda/kimodo_motion_packed.hda
+rm hda/kimodo_motion_packed.hda
+```
+
+---
+
+## 安裝方式
+
+### 方式 A — Houdini Package（推薦）
+
+將專案根目錄的 `kimodo-houdini-bridge.json` 複製到 Houdini 的 packages 目錄：
+
+```bash
+# Windows
+copy kimodo-houdini-bridge.json %HOUDINI_USER_PREF_DIR%\packages\
+
+# Linux / macOS
+cp kimodo-houdini-bridge.json ~/houdiniXX.Y/packages/
+```
+
+開啟 `kimodo-houdini-bridge.json`，將 `KIMODO_BRIDGE_ROOT` 改為此 repo 的實際路徑，重啟 Houdini 後即可在 Tab 選單的 **Kimodo** 分類下找到 `kimodo_motion` 節點。
+
+### 方式 B — 手動安裝
+
+在 Houdini：**Assets → Install Asset Library…** → 選擇 `hda/kimodo_motion.hda/` 目錄。

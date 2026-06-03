@@ -32,7 +32,7 @@ the [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model, outputting a
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| API Server URL | `http://localhost:8001` | URL of the running `kimodo_server` FastAPI service. Change only if you moved the server to a different host or port. |
+| API Server URL | `http://localhost:8001` | URL of the running `kimodo_server` FastAPI service. Change only if you moved the server to a different host or port. If you started the server with a custom `KIMODO_PORT`, set this to match (e.g. `http://localhost:8002`). |
 | Host Output Dir | _(your kimodo output path)_ | The host-side directory that is volume-mounted to `/workspace/output` inside Docker. The server writes NPZ files here and returns their in-container path; the node rewrites the prefix so Houdini can read the file directly. Must match the volume mount in `docker-compose.hybrid.yaml`. |
 | Prompt | `a person walks forward` | Natural language description of the desired motion. Be specific: body part, direction, speed, and style all influence the result. Examples: `"a person jogs in a circle"`, `"someone waves with their right hand"`. |
 | Duration (s) | `3.0` | Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames. Longer clips take more inference time. |

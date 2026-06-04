@@ -29,7 +29,7 @@
         name    "host_output_dir"
         label   "Host Output Dir"
         type    string
-        default { "D:/dev/kimodo/output" }
+        default { "" }
         help    "Host-side path mapped to /workspace/output inside Docker."
     }
     parm {
@@ -118,6 +118,6 @@
         name    "npz_path"
         label   "NPZ Path"
         type    string
-        default { "D:/dev/kimodo/output/dev_reference.npz" }
+        default { "" }
     }
 }

@@ -118,6 +118,6 @@
         name    "npz_path"
         label   "NPZ Path"
         type    string
-        default { "D:/dev/kimodo/output/dev_reference.npz" }
+        default { "" }
     }
 }

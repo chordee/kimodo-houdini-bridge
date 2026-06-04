@@ -51,7 +51,7 @@ Connect output0 to **Rig Pose SOP** for KineFX rig binding. Use output1 as the r
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | API Server URL | `http://localhost:8001` | URL of the running `kimodo_server` FastAPI service. Change only if you moved the server to a different host or port. If you started the server with a custom `KIMODO_PORT`, set this to match (e.g. `http://localhost:8002`). |
-| Host Output Dir | _(your kimodo output path)_ | The host-side directory that is volume-mounted to `/workspace/output` inside Docker. The server writes NPZ files here and returns their in-container path; the node rewrites the prefix so Houdini can read the file directly. Must match the volume mount in `docker-compose.hybrid.yaml`. |
+| Host Output Dir | _(empty)_ | The host-side directory that is volume-mounted to `/workspace/output` inside Docker. The server writes NPZ files here and returns their in-container path; the node rewrites the prefix so Houdini can read the file directly. Must match the volume mount in `docker-compose.hybrid.yaml`. Set this before pressing **Generate**. |
 | Prompt | `a person walks forward` | Natural language description of the desired motion. Be specific: body part, direction, speed, and style all influence the result. Examples: `"a person jogs in a circle"`, `"someone waves with their right hand"`. |
 | Duration (s) | `3.0` | Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames. Longer clips take more inference time. |
 | Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` (Reference Pose) conditions on a rest pose; `SEED` uses a fixed random seed for reproducibility. |
@@ -59,7 +59,7 @@ Connect output0 to **Rig Pose SOP** for KineFX rig binding. Use output1 as the r
 | **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. Inference runs on the server while a background thread polls for progress, so **Houdini stays responsive**. When the job finishes, **NPZ Path** is updated and the node recooks automatically. |
 | **Cancel** | — | Cancels the currently running job (terminates the server-side inference process). Only meaningful while a job is in progress. |
 | Status | _(read-only)_ | Shows the live job state: `Queued`, `Running... (Ns)` with elapsed seconds, `Done (Ns)` — or `Done (Ns) (cached)` on a cache hit — `Failed`, or `Cancelled`. Updated by the background poll thread. |
-| NPZ Path | _(auto-set by Generate)_ | Path on the **host** to the `.npz` file produced by Kimodo. Set automatically by **Generate**; you can also set it manually to load any pre-existing NPZ file (e.g. a clip generated via the CLI) without pressing Generate. The node recooks whenever this path changes. |
+| NPZ Path | _(empty)_ | The `.npz` file the node reads to build the skeleton — a **file field** with a browse button (filtered to `*.npz`). **Generate** sets it automatically; you can also point it at any compatible NPZ by hand (browse or paste) to load a clip produced outside this node — no Generate or server required. Empty by default: a freshly placed node outputs empty geometry (no error) until this is set. The node recooks whenever the path changes. |
 
 #### What is an NPZ file?
 
@@ -67,13 +67,17 @@ An NPZ file (NumPy compressed archive) is the output format of Kimodo inference.
 
 | Key | Shape | Content |
 |-----|-------|---------|
-| `posed_joints` | `(T, 77, 3)` | World-space joint positions in metres, T frames |
-| `local_rot_mats` | `(T, 77, 3, 3)` | Local rotation matrices — drives `localtransform` |
-| `global_rot_mats` | `(T, 77, 3, 3)` | Global rotation matrices |
+| `posed_joints` | `(T, 77, 3)` | World-space joint positions in metres — **read by the node** (joint placement) |
+| `global_rot_mats` | `(T, 77, 3, 3)` | World-space joint rotations — **read by the node**; `transform` / `localtransform` are derived from these |
+| `local_rot_mats` | `(T, 77, 3, 3)` | Local rotation matrices (Kimodo output; not required by the node) |
 | `root_positions` | `(T, 3)` | Root (Hips) world position |
 | `foot_contacts` | `(T, 6)` | Boolean foot-contact labels (6 SOMA contact points) |
 
-You can load any Kimodo NPZ directly — paste its host path into **NPZ Path** and the node will rebuild the skeleton for that clip.
+The node only needs **`posed_joints`** and **`global_rot_mats`**, in SOMA77 joint order, to
+rebuild the skeleton. Any compatible NPZ works regardless of how it was produced (Kimodo CLI,
+another script, …): set **NPZ Path** to it and the node rebuilds that clip frame by frame.
+**Host Output Dir** / **Download Dir** are only used by **Generate** to place or fetch the file —
+when you set **NPZ Path** manually they aren't involved.
 
 ### Caching
 

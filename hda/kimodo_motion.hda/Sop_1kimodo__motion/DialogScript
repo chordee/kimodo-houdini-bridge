@@ -117,7 +117,8 @@
     parm {
         name    "npz_path"
         label   "NPZ Path"
-        type    string
+        type    file
         default { "" }
+        parmtag { "filechooser_pattern" "*.npz" }
     }
 }

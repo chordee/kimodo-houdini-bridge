@@ -612,6 +612,9 @@ def build_hda(node_name, description, hda_path, generate_cb, fetch_mode):
     ptg.append(hou.StringParmTemplate(
         "npz_path", "NPZ Path", 1,
         default_value=(_NPZ_DEFAULT or "",),
+        string_type=hou.stringParmType.FileReference,
+        file_type=hou.fileType.Any,
+        tags={"filechooser_pattern": "*.npz"},
     ))
 
     hda_def.setParmTemplateGroup(ptg)

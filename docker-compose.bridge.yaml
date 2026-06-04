@@ -3,9 +3,11 @@
 # runs (stop the api container to free it). The kimodo_motion HDA fetches the
 # NPZ over HTTP, so the server can run on this machine or a remote GPU box.
 #
-# Usage (on the GPU host):
-#   MOCK_MODE=0 docker compose up text-encoder -d   # wait until healthy
-#   MOCK_MODE=0 docker compose up api -d
+# Lives alongside Kimodo's own docker-compose.yaml in the kimodo repo, hence the
+# distinct filename — always pass it with -f.
+# Usage (on the GPU host, from the kimodo dir):
+#   MOCK_MODE=0 docker compose -f docker-compose.bridge.yaml up text-encoder -d  # wait until healthy
+#   MOCK_MODE=0 docker compose -f docker-compose.bridge.yaml up api -d
 services:
   text-encoder:
     image: kimodo:1.0

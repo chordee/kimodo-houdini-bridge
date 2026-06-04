@@ -24,7 +24,7 @@ HELP_CARD = (
     "\n"
     "== Quick Start ==\n"
     "\n"
-    "# Start the Docker services (`docker compose up text-encoder -d`, then `up api -d`).\n"
+    "# Start the Docker services (`docker compose -f docker-compose.bridge.yaml up text-encoder -d`, then `up api -d`).\n"
     "# Set __Prompt__ and __Duration__, then press __Generate__. Watch __Status__; the\n"
     "  node cooks automatically when the NPZ has downloaded.\n"
     "# Set the Houdini frame range to match the clip and play back.\n"

@@ -43,21 +43,25 @@ _model_lock = asyncio.Lock()
 
 
 def _ensure_model(name: str):
-    """Load (or reuse) the resident Kimodo model. Single slot: a different model
-    replaces the previous one to bound VRAM to one model at a time."""
+    """Load (or reuse) the resident Kimodo model. The cache key is the resolved
+    canonical model name, so aliases (e.g. an empty preload default and the HDA's
+    "Kimodo-SOMA-RP-v1.1") map to the same key and reuse the loaded model instead
+    of reloading. Single slot: a different model replaces the previous one to
+    bound VRAM to one model at a time."""
     global _model, _model_key
     import torch
-    from kimodo import DEFAULT_MODEL, load_model
+    from kimodo import load_model
+    from kimodo.model.registry import resolve_model_name
 
-    requested = name or DEFAULT_MODEL
-    if _model is not None and _model_key == requested:
+    key = resolve_model_name(name or "", default_family="Kimodo")
+    if _model is not None and _model_key == key:
         return _model
     device = "cuda:0" if torch.cuda.is_available() else "cpu"
-    log.info("[RESIDENT] loading model %r on %s ...", requested, device)
+    log.info("[RESIDENT] loading model %s on %s ...", key, device)
     model, resolved = load_model(
-        requested, device=device, default_family="Kimodo", return_resolved_name=True
+        key, device=device, default_family="Kimodo", return_resolved_name=True
     )
-    _model, _model_key = model, requested
+    _model, _model_key = model, key
     log.info("[RESIDENT] model ready: %s", resolved)
     return model
 

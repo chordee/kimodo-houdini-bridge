@@ -68,7 +68,9 @@ def build_skin_geo(d):
     pts = [g.createPoint() for _ in range(V)]
     for i, p in enumerate(pts):
         p.setPosition(hou.Vector3(bv[i].tolist()))
-    g.createPolygons(tuple(tuple(int(x) for x in f) for f in faces))
+    # Reverse winding: Kimodo's faces are wound opposite to Houdini's outward-normal
+    # convention, so flip each face's vertex order.
+    g.createPolygons(tuple(tuple(int(x) for x in f[::-1]) for f in faces))
 
     g.addArrayAttrib(hou.attribType.Point, "boneCapture_index", hou.attribData.Int)
     g.addArrayAttrib(hou.attribType.Point, "boneCapture_data", hou.attribData.Float)

@@ -43,7 +43,7 @@ The bridge provides:
 - **Slow server startup** — the server preloads the model at startup (and the text encoder loads on CPU); generations afterwards skip the load. The model is read from the local HuggingFace cache offline, so the weights must be cached first (a one-time `huggingface-cli download nvidia/Kimodo-SOMA-RP-v1.1`). Identical requests (same prompt, duration, model) are served from cache and return instantly.
 - **Resident VRAM** — the model stays in VRAM while the `api` container runs; stop the container to free it. The in-process design (preload + serve) was tracked in [#1](../../issues/1).
 - **SOMA77 skeleton only** — retargeting to other rigs (e.g. UE5 Mannequin, Mixamo) requires an additional step not covered here
-- **GPU required** — needs an NVIDIA GPU with ≥ 3 GB VRAM; CPU-only inference is not supported by Kimodo
+- **GPU required** — needs an NVIDIA GPU with ≥ 4 GB VRAM (≥ 6 GB recommended if sharing with Houdini); CPU-only inference is not supported by Kimodo
 - **Mock mode ignores prompt** — when `MOCK_MODE=1`, the server always returns the same `dev_reference.npz` regardless of the prompt; switch to `MOCK_MODE=0` for real generation
 
 ---
@@ -62,7 +62,7 @@ kimodo_motion SOP → 4 outputs: Animated Pose / Capture Pose / Rest Geometry / 
     └─► kinefx::jointdeform (mesh + skeletons) → deformed body
 ```
 
-Diffusion runs on GPU (< 3 GB VRAM); text encoding is offloaded to CPU to reduce VRAM pressure. The model stays resident in the `api` container's VRAM while it runs. Houdini fetches the NPZ over HTTP, so the server can live on a separate GPU box.
+Diffusion runs on GPU (~3–4 GB VRAM resident); text encoding is offloaded to CPU to reduce VRAM pressure. The model stays resident in the `api` container's VRAM while it runs. Houdini fetches the NPZ over HTTP, so the server can live on a separate GPU box.
 
 ---
 

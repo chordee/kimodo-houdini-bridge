@@ -24,8 +24,9 @@ from _soma_tpose import TPOSE_ROTS
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)
-_SKIN_NPZ = sys.argv[1] if len(sys.argv) > 1 else \
-    r"D:/dev/kimodo/kimodo/assets/skeletons/somaskel77/skin_standard.npz"
+# Default assumes the kimodo repo is cloned alongside this one (see the setup guide).
+_SKIN_NPZ = sys.argv[1] if len(sys.argv) > 1 else os.path.join(
+    _REPO, "..", "kimodo", "kimodo", "assets", "skeletons", "somaskel77", "skin_standard.npz")
 _OUT_DIR = sys.argv[2] if len(sys.argv) > 2 else _REPO
 
 
@@ -123,6 +124,11 @@ def build_apose_skeleton(d):
 
 
 def main():
+    if not os.path.exists(_SKIN_NPZ):
+        raise FileNotFoundError(
+            f"skin_standard.npz not found at {_SKIN_NPZ!r}. Pass it explicitly: "
+            "hython scripts/build_skin.py /path/to/skin_standard.npz [out_dir]"
+        )
     d = _load()
     skin = build_skin_geo(d)
     apose = build_apose_skeleton(d)

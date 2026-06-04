@@ -465,10 +465,17 @@ node = hou.pwd()
 name = \"apose.bgeo.sc\"
 raw = node.parent().type().definition().sections()[name].contents()
 data = base64.b64decode(raw)
-path = os.path.join(tempfile.gettempdir(), \"kimodo_\" + name)
-with open(path, \"wb\") as fh:
-    fh.write(data)
-node.geometry().loadFromFile(path)
+fd, path = tempfile.mkstemp(prefix=\"kimodo_\", suffix=\"_\" + name)
+os.close(fd)
+try:
+    with open(path, \"wb\") as fh:
+        fh.write(data)
+    node.geometry().loadFromFile(path)
+finally:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 "	)
 maintainstate	[ 0	locks=0 ]	(	"off"	)
 }
@@ -533,10 +540,17 @@ node = hou.pwd()
 name = \"skin.bgeo.sc\"
 raw = node.parent().type().definition().sections()[name].contents()
 data = base64.b64decode(raw)
-path = os.path.join(tempfile.gettempdir(), \"kimodo_\" + name)
-with open(path, \"wb\") as fh:
-    fh.write(data)
-node.geometry().loadFromFile(path)
+fd, path = tempfile.mkstemp(prefix=\"kimodo_\", suffix=\"_\" + name)
+os.close(fd)
+try:
+    with open(path, \"wb\") as fh:
+        fh.write(data)
+    node.geometry().loadFromFile(path)
+finally:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 "	)
 maintainstate	[ 0	locks=0 ]	(	"off"	)
 }

@@ -70,7 +70,7 @@ rebuild the skeleton. Any compatible NPZ works regardless of how it was produced
 
 ### Caching
 
-The server caches results by an MD5 of `prompt + duration + model`. Re-running with
+The server caches results by a SHA-256 hash of `prompt + duration + model`. Re-running with
 identical settings returns instantly (Status shows `Done (cached)`); enable **Force
 Regenerate** to bypass it.
 

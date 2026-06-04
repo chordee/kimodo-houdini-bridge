@@ -21,12 +21,16 @@ _APOSE_BGEO = os.path.join(_REPO, "apose.bgeo.sc")
 
 
 def _skin_sections():
-    if os.path.exists(_SKIN_BGEO) and os.path.exists(_APOSE_BGEO):
-        return {
-            "skin.bgeo.sc":  open(_SKIN_BGEO, "rb").read(),
-            "apose.bgeo.sc": open(_APOSE_BGEO, "rb").read(),
-        }
-    return None
+    missing = [p for p in (_SKIN_BGEO, _APOSE_BGEO) if not os.path.exists(p)]
+    if missing:
+        raise FileNotFoundError(
+            "Missing embedded geometry — run `hython scripts/build_skin.py` first:\n  "
+            + "\n  ".join(missing)
+        )
+    return {
+        "skin.bgeo.sc":  open(_SKIN_BGEO, "rb").read(),
+        "apose.bgeo.sc": open(_APOSE_BGEO, "rb").read(),
+    }
 
 _NPZ_DEFAULT = sys.argv[1] if len(sys.argv) > 1 else ""
 
@@ -349,10 +353,17 @@ node = hou.pwd()
 name = "%s"
 raw = node.parent().type().definition().sections()[name].contents()
 data = base64.b64decode(raw)
-path = os.path.join(tempfile.gettempdir(), "kimodo_" + name)
-with open(path, "wb") as fh:
-    fh.write(data)
-node.geometry().loadFromFile(path)
+fd, path = tempfile.mkstemp(prefix="kimodo_", suffix="_" + name)
+os.close(fd)
+try:
+    with open(path, "wb") as fh:
+        fh.write(data)
+    node.geometry().loadFromFile(path)
+finally:
+    try:
+        os.remove(path)
+    except OSError:
+        pass
 '''
 
 
@@ -497,7 +508,7 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
     labels = (["Animated Pose", "Capture Pose", "Rest Geometry", "T-Pose"]
               if skin_sections else ["Animated Pose", "T-Pose"])
     ds = hda_def.sections()["DialogScript"].contents().splitlines(keepends=True)
-    after = max(i for i, l in enumerate(ds) if l.lstrip().startswith("inputlabel"))
+    after = max(i for i, line in enumerate(ds) if line.lstrip().startswith("inputlabel"))
     inject = "".join('    outputlabel\t%d\t"%s"\n' % (i + 1, lbl) for i, lbl in enumerate(labels))
     hda_def.addSection("DialogScript", "".join(ds[:after + 1]) + inject + "".join(ds[after + 1:]))
     hda_def.save(hda_path)

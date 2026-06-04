@@ -66,7 +66,7 @@ NPZ 都能用,不管怎麼產生的——把 **NPZ Path** 指過去即可。**Do
 
 ### 快取
 
-伺服器以 `prompt + duration + model` 的 MD5 為鍵快取。相同設定再跑會即時回傳
+伺服器以 `prompt + duration + model` 的 SHA-256 雜湊為鍵快取。相同設定再跑會即時回傳
 (Status 顯示 `Done (cached)`);開 **Force Regenerate** 可繞過。
 
 ### 前置條件

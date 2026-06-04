@@ -1,6 +1,6 @@
-Operator:     kimodo_motion
-Label:        Kimodo Motion Generator
-Path:         oplib:/Sop/kimodo_motion?Sop/kimodo_motion
+Operator:     kimodo_motion_remote
+Label:        Kimodo Motion Generator (Remote)
+Path:         oplib:/Sop/kimodo_motion_remote?Sop/kimodo_motion_remote
 Icon:         SOP_subnet
 Table:        Sop
 License:      

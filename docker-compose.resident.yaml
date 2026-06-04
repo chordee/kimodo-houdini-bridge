@@ -1,0 +1,58 @@
+# Resident-model deployment: the Kimodo model is preloaded once at FastAPI
+# startup and inference runs in-process (no per-request subprocess reload).
+# Intended for a powerful (often remote) GPU box where keeping the model
+# resident in VRAM is acceptable. Pair with the kimodo_motion_remote HDA, which
+# fetches the NPZ over HTTP (a remote Houdini cannot read this host's filesystem).
+#
+# Usage (on the GPU host):
+#   MOCK_MODE=0 docker compose -f docker-compose.resident.yaml up text-encoder -d
+#   MOCK_MODE=0 docker compose -f docker-compose.resident.yaml up api -d
+services:
+  text-encoder:
+    image: kimodo:1.0
+    container_name: text-encoder
+    working_dir: /workspace
+    command: python -m kimodo.scripts.run_text_encoder_server
+    volumes:
+      - ./:/workspace
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/workspace/.cache/huggingface
+    ports:
+      - "9550:9550"
+    environment:
+      - TEXT_ENCODER_DEVICE=cpu
+      - HF_HOME=/workspace/.cache/huggingface
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+    healthcheck:
+      test: ["CMD", "bash", "-lc", "curl -fsS http://localhost:9550/ > /dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 120  # CPU model loading can take up to 10 minutes on first run
+
+  api:
+    image: kimodo:1.0
+    container_name: kimodo-api
+    working_dir: /workspace
+    command: uvicorn kimodo_server:app --host 0.0.0.0 --port ${KIMODO_PORT:-8001}
+    volumes:
+      - ./:/workspace
+      - ${HF_HOME:-${HOME}/.cache/huggingface}:/workspace/.cache/huggingface
+    ports:
+      - "${KIMODO_PORT:-8001}:${KIMODO_PORT:-8001}"
+    environment:
+      - INFERENCE_MODE=resident   # preload the model; serve inference in-process
+      - KIMODO_MODEL=${KIMODO_MODEL:-}   # model to preload at startup (blank = kimodo default)
+      - MOCK_MODE=${MOCK_MODE:-0}   # 0 = live inference; 1 = serve dev_reference.npz
+      - OUTPUT_DIR=/workspace/output
+      - TEXT_ENCODER_URL=http://text-encoder:9550/
+      - HF_HOME=/workspace/.cache/huggingface
+      - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    depends_on:
+      text-encoder:
+        condition: service_healthy

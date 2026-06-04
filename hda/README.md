@@ -93,6 +93,36 @@ docker compose -f docker-compose.hybrid.yaml up api -d
 
 ---
 
+## kimodo_motion_remote.hda
+
+**Type:** `Sop/kimodo_motion_remote`
+
+A second node for the **resident-model** deployment, where the server runs on a
+powerful (often remote) GPU box. It is identical to `kimodo_motion` — same prompt,
+duration, model, outputs and skeleton — with one difference: a remote Houdini
+cannot read the server's filesystem, so instead of rewriting a mounted host path
+it **downloads the finished NPZ over HTTP**.
+
+| | `kimodo_motion` | `kimodo_motion_remote` |
+|--------|-----------------|------------------------|
+| Server | local subprocess per request (`docker-compose.hybrid.yaml`) | resident model, preloaded (`docker-compose.resident.yaml`) |
+| NPZ transport | volume mount + path rewrite | HTTP download |
+| Transport parameter | **Host Output Dir** | **Download Dir** — local folder for downloaded NPZ (default `$HIP/kimodo_cache`) |
+
+The server preloads the model at startup (`INFERENCE_MODE=resident`), so generations
+skip the per-request reload. Trade-off: the model stays resident in VRAM, and a job
+already running cannot be hard-cancelled (Cancel only stops a queued job or discards
+the result). Start the resident server with:
+
+```bash
+docker compose -f docker-compose.resident.yaml up text-encoder -d  # wait until healthy
+docker compose -f docker-compose.resident.yaml up api -d
+```
+
+Set the node's **API Server URL** to the box running the resident server.
+
+---
+
 ## Rebuilding the HDA
 
 If you need to regenerate the HDA (e.g. after editing the cook scripts embedded in `scripts/create_hda.py`):

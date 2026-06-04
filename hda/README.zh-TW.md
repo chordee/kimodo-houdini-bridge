@@ -168,6 +168,29 @@ docker compose -f docker-compose.hybrid.yaml up api -d
 
 ---
 
+## kimodo_motion_remote.hda
+
+**節點類型：** `Sop/kimodo_motion_remote`
+
+針對**常駐模型（resident）**部署的第二個節點，伺服器跑在算力強的（通常是遠端）GPU 主機上。它與 `kimodo_motion` 完全相同——一樣的 prompt、duration、model、輸出與骨架——只差一點：遠端的 Houdini 讀不到伺服器的檔案系統，所以不做掛載路徑替換，而是**透過 HTTP 下載生成好的 NPZ**。
+
+| | `kimodo_motion` | `kimodo_motion_remote` |
+|--------|-----------------|------------------------|
+| 伺服器 | 每請求開子行程（`docker-compose.hybrid.yaml`） | 常駐模型、啟動預載（`docker-compose.resident.yaml`） |
+| NPZ 傳輸 | volume 掛載 + 路徑替換 | HTTP 下載 |
+| 傳輸參數 | **Host Output Dir** | **Download Dir** — 下載 NPZ 的本機資料夾（預設 `$HIP/kimodo_cache`） |
+
+伺服器在啟動時預載模型（`INFERENCE_MODE=resident`），因此每次生成省去重載開銷。取捨：模型常駐佔用 VRAM，且執行中的工作無法硬性取消（Cancel 只能停掉排隊中的工作或丟棄結果）。啟動常駐伺服器：
+
+```bash
+docker compose -f docker-compose.resident.yaml up text-encoder -d  # 等待 healthy
+docker compose -f docker-compose.resident.yaml up api -d
+```
+
+將節點的 **API Server URL** 設為執行常駐伺服器的主機位址。
+
+---
+
 ## 重建 HDA
 
 若修改了 `scripts/create_hda.py` 內嵌的 cook 腳本或參數定義，需重新生成 HDA：

@@ -11,5 +11,6 @@ __pycache__/
 *.hiplc
 *.hip
 backup/
-# Exclude packed binary HDA at repo root (only hda/ unpacked format is canonical)
+# Exclude packed binary HDAs at repo root (only hda/ unpacked format is canonical)
 /kimodo_motion.hda
+/kimodo_motion_remote.hda

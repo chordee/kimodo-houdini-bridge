@@ -12,7 +12,8 @@ import hou
 
 _HERE     = os.path.dirname(os.path.abspath(__file__))
 _REPO     = os.path.dirname(_HERE)
-_HDA_PATH = os.path.join(_REPO, "kimodo_motion.hda")
+_HDA_PATH        = os.path.join(_REPO, "kimodo_motion.hda")
+_HDA_REMOTE_PATH = os.path.join(_REPO, "kimodo_motion_remote.hda")
 
 _NPZ_DEFAULT        = sys.argv[1] if len(sys.argv) > 1 else ""
 _HOST_OUTPUT_DEFAULT = sys.argv[2] if len(sys.argv) > 2 else ""
@@ -291,6 +292,130 @@ else:
     )
 """
 
+# Remote variant: identical submit + background poll, but the server may be on
+# another machine, so on completion we fetch the NPZ over HTTP into a local
+# cache dir instead of rewriting a host path.
+_GENERATE_CB_REMOTE = r"""
+import threading, time, requests, hou
+
+node         = kwargs["node"]
+url          = node.parm("server_url").eval().rstrip("/")
+download_dir = node.parm("download_dir").eval()
+
+try:
+    resp = requests.post(
+        f"{url}/generate",
+        json={
+            "prompt":   node.parm("prompt").eval(),
+            "duration": node.parm("duration").eval(),
+            "model":    node.parm("model").evalAsString(),
+            "force":    bool(node.parm("force").eval()),
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+except Exception as e:
+    hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
+    node.parm("status").set(f"Error: {e}")
+else:
+    job_id = resp.json()["job_id"]
+    node.parm("job_id").set(job_id)
+    node.parm("status").set(f"Queued ({job_id[:8]}...)")
+
+    def _poll():
+        # HOM/UI calls are not thread-safe: marshal them to the main thread.
+        import hdefereval, os
+        def _set(parm, val):
+            hdefereval.executeInMainThreadWithResult(lambda: node.parm(parm).set(val))
+        def _msg(text, severity=None):
+            if severity is None:
+                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, title="Kimodo"))
+            else:
+                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, severity=severity, title="Kimodo"))
+        fails = 0
+        while True:
+            time.sleep(5)
+            # stop if a newer Generate has replaced this job
+            if hdefereval.executeInMainThreadWithResult(lambda: node.parm("job_id").eval()) != job_id:
+                break
+            try:
+                r = requests.get(f"{url}/jobs/{job_id}", timeout=10)
+                if r.status_code == 404:
+                    _set("status", "Job lost (server restarted?)")
+                    _set("job_id", "")
+                    break
+                r.raise_for_status()
+                data = r.json()
+                fails = 0
+            except Exception as e:
+                fails += 1
+                _set("status", f"Poll error ({fails}/3): {e}")
+                if fails >= 3:
+                    break
+                continue
+            status  = data["status"]
+            elapsed = data.get("elapsed")
+            elapsed_str = f" ({int(elapsed)}s)" if elapsed else ""
+            if status == "done":
+                frames, joints = data["frames"], data["joints"]
+                done_label = f"Done{elapsed_str}" + (" (cached)" if data.get("cached") else "")
+                try:
+                    _set("status", f"Downloading...{elapsed_str}")
+                    os.makedirs(download_dir, exist_ok=True)
+                    local_npz = os.path.join(download_dir, f"{job_id}.npz")
+                    with requests.get(f"{url}/jobs/{job_id}/download", timeout=120, stream=True) as dl:
+                        dl.raise_for_status()
+                        with open(local_npz, "wb") as fh:
+                            for chunk in dl.iter_content(chunk_size=1 << 20):
+                                fh.write(chunk)
+                except Exception as e:
+                    _set("status", f"Download failed: {e}")
+                    _msg(f"NPZ download failed:\n{e}", severity=hou.severityType.Error)
+                    break
+                def _finish():
+                    node.parm("status").set(done_label)
+                    node.parm("npz_path").set(local_npz)
+                    node.parm("job_id").set("")
+                    node.cook(force=True)
+                hdefereval.executeInMainThreadWithResult(_finish)
+                _msg(f"Generated {frames} frames ({joints} joints){elapsed_str}.")
+                break
+            elif status in ("failed", "cancelled"):
+                err = data.get("error")
+                _set("status", f"{status.capitalize()}: {err[:60]}" if err else status.capitalize())
+                if status == "failed":
+                    _msg(f"Generation failed:\n{err}", severity=hou.severityType.Error)
+                break
+            else:
+                _set("status", f"Running...{elapsed_str}")
+
+    threading.Thread(target=_poll, daemon=True).start()
+    hou.ui.displayMessage(
+        "Generation started in background.\nHoudini will update automatically when done.",
+        title="Kimodo",
+    )
+"""
+
+# Cancel is identical for both HDAs (same server endpoint).
+_CANCEL_CB = r"""
+import requests, hou
+
+node   = kwargs["node"]
+url    = node.parm("server_url").eval().rstrip("/")
+job_id = node.parm("job_id").eval()
+if not job_id:
+    hou.ui.displayMessage("No active job to cancel.", title="Kimodo")
+else:
+    try:
+        r = requests.post(f"{url}/jobs/{job_id}/cancel", timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
+    else:
+        node.parm("status").set("Cancelled")
+        node.parm("job_id").set("")
+"""
+
 _REST_SCRIPT = r"""
 import hou
 
@@ -379,132 +504,124 @@ for i, parent in enumerate(SOMA77_PARENTS):
         prim.addVertex(pts[i])
 """
 
-# ── build Houdini scene ──────────────────────────────────────────────────────
-obj = hou.node("/obj")
-geo = obj.createNode("geo", "kimodo_setup")
-geo.deleteItems(geo.children())
+def build_hda(node_name, description, hda_path, generate_cb, fetch_mode):
+    """Build one kimodo HDA. The two flavours share everything except the
+    Generate callback and one transport parameter:
+      fetch_mode="local"  -> host_output_dir (volume path rewrite)
+      fetch_mode="remote" -> download_dir   (HTTP download to a local cache)
+    """
+    obj = hou.node("/obj")
+    geo = obj.createNode("geo", node_name + "_setup")
+    geo.deleteItems(geo.children())
 
-# Subnet SOP acts as the HDA container
-subnet = geo.createNode("subnet", "kimodo_subnet")
+    subnet = geo.createNode("subnet", node_name + "_subnet")
 
-# Python SOPs inside the subnet. Both cook scripts share the TPOSE_ROTS table,
-# injected as a literal prelude so each embedded script stays self-contained.
-inner = subnet.createNode("python", "gen_sop")
-inner.parm("python").set(_TPOSE_SRC + _COOK_SCRIPT)
+    # Python SOPs share the TPOSE_ROTS table, injected as a literal prelude so
+    # each embedded cook script stays self-contained.
+    inner = subnet.createNode("python", "gen_sop")
+    inner.parm("python").set(_TPOSE_SRC + _COOK_SCRIPT)
+    rest_sop = subnet.createNode("python", "rest_sop")
+    rest_sop.parm("python").set(_TPOSE_SRC + _REST_SCRIPT)
 
-rest_sop = subnet.createNode("python", "rest_sop")
-rest_sop.parm("python").set(_TPOSE_SRC + _REST_SCRIPT)
+    out0 = subnet.createNode("output", "output0")
+    out0.setInput(0, inner)
+    out0.parm("outputidx").set(0)
+    out1 = subnet.createNode("output", "output1")
+    out1.setInput(0, rest_sop)
+    out1.parm("outputidx").set(1)
+    out0.setDisplayFlag(True)
+    out0.setRenderFlag(True)
+    subnet.layoutChildren()
 
-# Output nodes for dual-output HDA
-out0 = subnet.createNode("output", "output0")
-out0.setInput(0, inner)
-out0.parm("outputidx").set(0)
+    hda_node = subnet.createDigitalAsset(
+        name=node_name,
+        hda_file_name=hda_path,
+        description=description,
+        min_num_inputs=0,
+        max_num_inputs=0,
+        version="1.0",
+    )
+    hda_def = hda_node.type().definition()
+    hda_def.setMaxNumOutputs(2)
+    ptg = hou.ParmTemplateGroup()   # start fresh — no inherited subnet parms
 
-out1 = subnet.createNode("output", "output1")
-out1.setInput(0, rest_sop)
-out1.parm("outputidx").set(1)
-
-out0.setDisplayFlag(True)
-out0.setRenderFlag(True)
-subnet.layoutChildren()
-
-# ── create HDA from subnet ───────────────────────────────────────────────────
-hda_node = subnet.createDigitalAsset(
-    name="kimodo_motion",
-    hda_file_name=_HDA_PATH,
-    description="Kimodo Motion Generator",
-    min_num_inputs=0,
-    max_num_inputs=0,
-    version="1.0",
-)
-
-hda_def = hda_node.type().definition()
-hda_def.setMaxNumOutputs(2)
-ptg     = hou.ParmTemplateGroup()   # start fresh — no inherited subnet parms
-
-ptg.append(hou.SeparatorParmTemplate("sep_api"))
-ptg.append(hou.StringParmTemplate(
-    "server_url", "API Server URL", 1,
-    default_value=("http://localhost:8001",),
-))
-ptg.append(hou.StringParmTemplate(
-    "host_output_dir", "Host Output Dir", 1,
-    default_value=(_HOST_OUTPUT_DEFAULT or "",),
-    help="Host-side path mapped to /workspace/output inside Docker.",
-))
-ptg.append(hou.SeparatorParmTemplate("sep_gen"))
-ptg.append(hou.StringParmTemplate(
-    "prompt", "Prompt", 1,
-    default_value=("a person walks forward",),
-))
-ptg.append(hou.FloatParmTemplate(
-    "duration", "Duration (s)", 1,
-    default_value=(3.0,), min=0.5, max=30.0,
-))
-ptg.append(hou.MenuParmTemplate(
-    "model", "Model",
-    ("Kimodo-SOMA-RP-v1.1", "Kimodo-SOMA-SEED-v1.1", "Kimodo-SOMA-RP-v1"),
-    default_value=0,
-))
-ptg.append(hou.ToggleParmTemplate(
-    "force", "Force Regenerate",
-    default_value=False,
-    help="Bypass the server cache and re-run inference even if a matching clip exists.",
-))
-_CANCEL_CB = r"""
-import requests, hou
-
-node   = kwargs["node"]
-url    = node.parm("server_url").eval().rstrip("/")
-job_id = node.parm("job_id").eval()
-if not job_id:
-    hou.ui.displayMessage("No active job to cancel.", title="Kimodo")
-else:
-    try:
-        r = requests.post(f"{url}/jobs/{job_id}/cancel", timeout=10)
-        r.raise_for_status()
-    except Exception as e:
-        hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
+    ptg.append(hou.SeparatorParmTemplate("sep_api"))
+    ptg.append(hou.StringParmTemplate(
+        "server_url", "API Server URL", 1,
+        default_value=("http://localhost:8001",),
+    ))
+    if fetch_mode == "local":
+        ptg.append(hou.StringParmTemplate(
+            "host_output_dir", "Host Output Dir", 1,
+            default_value=(_HOST_OUTPUT_DEFAULT or "",),
+            help="Host-side path mapped to /workspace/output inside Docker.",
+        ))
     else:
-        node.parm("status").set("Cancelled")
-        node.parm("job_id").set("")
-"""
+        ptg.append(hou.StringParmTemplate(
+            "download_dir", "Download Dir", 1,
+            default_value=("$HIP/kimodo_cache",),
+            help="Local folder where generated NPZ files are downloaded from the server.",
+        ))
+    ptg.append(hou.SeparatorParmTemplate("sep_gen"))
+    ptg.append(hou.StringParmTemplate(
+        "prompt", "Prompt", 1,
+        default_value=("a person walks forward",),
+    ))
+    ptg.append(hou.FloatParmTemplate(
+        "duration", "Duration (s)", 1,
+        default_value=(3.0,), min=0.5, max=30.0,
+    ))
+    ptg.append(hou.MenuParmTemplate(
+        "model", "Model",
+        ("Kimodo-SOMA-RP-v1.1", "Kimodo-SOMA-SEED-v1.1", "Kimodo-SOMA-RP-v1"),
+        default_value=0,
+    ))
+    ptg.append(hou.ToggleParmTemplate(
+        "force", "Force Regenerate",
+        default_value=False,
+        help="Bypass the server cache and re-run inference even if a matching clip exists.",
+    ))
+    ptg.append(hou.ButtonParmTemplate(
+        "generate", "Generate",
+        script_callback=generate_cb,
+        script_callback_language=hou.scriptLanguage.Python,
+        join_with_next=True,
+    ))
+    ptg.append(hou.ButtonParmTemplate(
+        "cancel", "Cancel",
+        script_callback=_CANCEL_CB,
+        script_callback_language=hou.scriptLanguage.Python,
+    ))
+    ptg.append(hou.StringParmTemplate(
+        "status", "Status", 1,
+        default_value=("",),
+        help="Current job status. Updated automatically by Generate.",
+    ))
+    ptg.append(hou.StringParmTemplate(
+        "job_id", "Job ID", 1,
+        default_value=("",),
+        is_hidden=True,
+    ))
+    ptg.append(hou.IntParmTemplate(
+        "frame_ref", "Frame", 1,
+        default_expression=("$F",),
+        default_expression_language=(hou.scriptLanguage.Hscript,),
+        is_hidden=True,
+    ))
+    ptg.append(hou.SeparatorParmTemplate("sep_npz"))
+    ptg.append(hou.StringParmTemplate(
+        "npz_path", "NPZ Path", 1,
+        default_value=(_NPZ_DEFAULT or "",),
+    ))
 
-ptg.append(hou.ButtonParmTemplate(
-    "generate", "Generate",
-    script_callback=_GENERATE_CB,
-    script_callback_language=hou.scriptLanguage.Python,
-    join_with_next=True,
-))
-ptg.append(hou.ButtonParmTemplate(
-    "cancel", "Cancel",
-    script_callback=_CANCEL_CB,
-    script_callback_language=hou.scriptLanguage.Python,
-))
-ptg.append(hou.StringParmTemplate(
-    "status", "Status", 1,
-    default_value=("",),
-    help="Current job status. Updated automatically by Generate.",
-))
-ptg.append(hou.StringParmTemplate(
-    "job_id", "Job ID", 1,
-    default_value=("",),
-    is_hidden=True,
-))
-ptg.append(hou.IntParmTemplate(
-    "frame_ref", "Frame", 1,
-    default_expression=("$F",),
-    default_expression_language=(hou.scriptLanguage.Hscript,),
-    is_hidden=True,
-))
-ptg.append(hou.SeparatorParmTemplate("sep_npz"))
-ptg.append(hou.StringParmTemplate(
-    "npz_path", "NPZ Path", 1,
-    default_value=(_NPZ_DEFAULT or "",),
-))
+    hda_def.setParmTemplateGroup(ptg)
+    hda_def.save(hda_path)
+    print(f"HDA saved: {hda_path}")
+    print(f"  parms: {[p.name() for p in hda_def.parmTemplateGroup().parmTemplates()]}")
 
-hda_def.setParmTemplateGroup(ptg)
-hda_def.save(_HDA_PATH)
 
-print(f"HDA saved: {_HDA_PATH}")
-print(f"Parms: {[p.name() for p in hda_def.parmTemplateGroup().parmTemplates()]}")
+# ── build both HDAs ──────────────────────────────────────────────────────────
+build_hda("kimodo_motion", "Kimodo Motion Generator",
+          _HDA_PATH, _GENERATE_CB, "local")
+build_hda("kimodo_motion_remote", "Kimodo Motion Generator (Remote)",
+          _HDA_REMOTE_PATH, _GENERATE_CB_REMOTE, "remote")

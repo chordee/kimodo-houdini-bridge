@@ -17,8 +17,10 @@ A personal research and development project that bridges [NVIDIA Kimodo](https:/
 The bridge provides:
 
 - **`docker-compose.hybrid.yaml`** — deploys Kimodo in Hybrid mode (diffusion on GPU, text encoder on CPU) with a FastAPI inference server
-- **`kimodo_server.py`** — a FastAPI wrapper that exposes `/generate` and `/health` endpoints; supports mock mode for development without running inference
+- **`docker-compose.resident.yaml`** — an alternative deployment that preloads the model once at startup and serves inference in-process (no per-request reload), intended for a powerful (often remote) GPU box
+- **`kimodo_server.py`** — a FastAPI wrapper that exposes `/generate`, `/health` and a per-job NPZ download endpoint; supports mock mode for development without running inference, and a `subprocess` (default) or `resident` inference mode
 - **`kimodo_motion` HDA** — a Houdini SOP node that sends a prompt to the server, receives the output NPZ, and reconstructs the SOMA77 skeleton as KineFX-compatible geometry. It has two outputs — a per-frame animated skeleton and a static T-pose rest skeleton — with bones drawn as polyline primitives and joint `transform` / `localtransform` attributes in Houdini's row-vector convention (see [HDA Documentation](hda/README.md) for the full attribute layout)
+- **`kimodo_motion_remote` HDA** — the same node for the resident deployment; it downloads the NPZ over HTTP instead of reading a mounted volume, so the server can run on another machine
 
 ---
 
@@ -35,7 +37,7 @@ The bridge provides:
 
 - **English prompts only** — Kimodo's text encoder was trained on English descriptions
 - **Slow first generation** — the first `/generate` call in production mode downloads model weights from HuggingFace (~10 min) and loads the model into GPU memory; subsequent calls within the same server session are faster. Identical requests (same prompt, duration, model) are served from cache and return instantly
-- **No in-process model caching** — the current architecture spawns a new subprocess per request, so the model is reloaded each time (planned improvement: [#1](../../issues/1))
+- **Per-request model reload (Hybrid mode)** — the default `subprocess` inference mode spawns a new process per request, reloading the model each time. The `resident` mode (`docker-compose.resident.yaml` + `kimodo_motion_remote`) avoids this by keeping the model in memory, at the cost of resident VRAM — best on a dedicated/remote GPU box. Background: [#1](../../issues/1)
 - **SOMA77 skeleton only** — retargeting to other rigs (e.g. UE5 Mannequin, Mixamo) requires an additional step not covered here
 - **GPU required** — Hybrid mode needs an NVIDIA GPU with ≥ 3 GB VRAM; CPU-only inference is not supported by Kimodo
 - **Mock mode ignores prompt** — when `MOCK_MODE=1`, the server always returns the same `dev_reference.npz` regardless of the prompt; switch to `MOCK_MODE=0` for real generation

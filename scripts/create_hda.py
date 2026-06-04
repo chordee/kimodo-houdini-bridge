@@ -595,7 +595,18 @@ def build_hda(node_name, description, hda_path, generate_cb, fetch_mode, skin_se
 
     hda_def.setParmTemplateGroup(ptg)
     hda_def.save(hda_path)
-    print(f"HDA saved: {hda_path}")
+
+    # Output connector labels live in the DialogScript as `outputlabel N "..."`
+    # lines (right after the inputlabel block); inject them and re-save.
+    labels = (["Animated Pose", "Capture Pose", "Rest Geometry", "T-Pose"]
+              if skin_sections else ["Animated Pose", "T-Pose"])
+    ds = hda_def.sections()["DialogScript"].contents().splitlines(keepends=True)
+    after = max(i for i, l in enumerate(ds) if l.lstrip().startswith("inputlabel"))
+    inject = "".join('    outputlabel\t%d\t"%s"\n' % (i + 1, lbl) for i, lbl in enumerate(labels))
+    hda_def.addSection("DialogScript", "".join(ds[:after + 1]) + inject + "".join(ds[after + 1:]))
+    hda_def.save(hda_path)
+
+    print(f"HDA saved: {hda_path}  outputs: {labels}")
     print(f"  parms: {[p.name() for p in hda_def.parmTemplateGroup().parmTemplates()]}")
 
 

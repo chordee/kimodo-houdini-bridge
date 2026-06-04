@@ -12,6 +12,8 @@
     inputlabel	2	"Sub-Network Input #2"
     inputlabel	3	"Sub-Network Input #3"
     inputlabel	4	"Sub-Network Input #4"
+    outputlabel	1	"Animated Pose"
+    outputlabel	2	"T-Pose"
 
     parm {
         name    "sep_api"

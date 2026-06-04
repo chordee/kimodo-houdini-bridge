@@ -8,7 +8,7 @@
 
 | | Path A — 本機(Hybrid) | Path B — 遠端／常駐(Resident) |
 |---|---|---|
-| 使用時機 | Houdini 與 GPU 在同一台 | GPU 在另一台／更強的機器 |
+| 使用時機 | 預設 — 最簡單,生成之間釋放 VRAM | 常迭代且 VRAM 有餘,或 GPU 在另一台 |
 | Compose 檔 | `docker-compose.hybrid.yaml` | `docker-compose.resident.yaml` |
 | 推論 | 每請求開一個子行程(每次重載模型) | 模型預載一次,in-process 服務 |
 | Houdini 節點 | `kimodo_motion` | `kimodo_motion_remote` |
@@ -151,7 +151,8 @@ MOCK_MODE=0 docker compose -f docker-compose.hybrid.yaml up api -d
 
 # Path B — 遠端／常駐(Resident)
 
-GPU 在另一台機器;模型預載一次,節點透過 HTTP 取回 NPZ。B1–B3 **在 GPU 機器上執行**。
+模型預載一次以加速迭代;節點透過 HTTP 取回 NPZ,所以伺服器可在**本機或另一台 GPU 機器**。
+B1–B3 在有 GPU 的那台執行;若與 Houdini 同一台,節點的 server URL 設 `localhost` 即可。
 
 ## B1. 預先快取模型權重(一次性)
 

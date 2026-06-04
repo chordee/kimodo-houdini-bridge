@@ -9,7 +9,7 @@ then follow **only** the path you need.
 
 | | Path A — Local (Hybrid) | Path B — Remote / Resident |
 |---|---|---|
-| Use when | Houdini and the GPU are on the same machine | the GPU lives on a separate / more powerful box |
+| Use when | default — simplest, frees VRAM between generations | frequent iteration with VRAM to spare, or the GPU on a separate box |
 | Compose file | `docker-compose.hybrid.yaml` | `docker-compose.resident.yaml` |
 | Inference | one subprocess per request (model reloaded each call) | model preloaded once, served in-process |
 | Houdini node | `kimodo_motion` | `kimodo_motion_remote` |
@@ -154,8 +154,9 @@ Drop a **`kimodo_motion`** node in a SOP network. Set **API Server URL** to
 
 # Path B — Remote / Resident
 
-The GPU lives on a separate box; the model is preloaded once and the node fetches the NPZ over HTTP.
-Run B1–B3 **on the GPU box**.
+The model is preloaded once for fast iteration; the node fetches the NPZ over HTTP, so the
+server can run **locally or on a separate GPU box**. Run B1–B3 on whichever machine has the
+GPU — if that's the same machine as Houdini, just point the node's server URL at `localhost`.
 
 ## B1. Pre-cache the model weights (one time)
 

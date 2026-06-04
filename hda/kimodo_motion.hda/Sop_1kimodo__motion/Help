@@ -4,39 +4,37 @@
 #context: sop
 #tags: kimodo, motion, ai, kinefx, animation
 
-Generates 3D human motion from a text prompt using NVIDIA Kimodo,
-outputting a 77-joint SOMA skeleton compatible with Houdini KineFX.
+Generates 3D human motion from a text prompt using NVIDIA Kimodo, outputting a
+77-joint SOMA skeleton (animated + rest poses) plus a skinned body mesh, all
+compatible with Houdini KineFX.
 
 == Overview ==
 
-The Kimodo Motion Generator node connects to a running
-[Kimodo|https://github.com/nv-tlabs/kimodo] inference server and
-generates skeleton animation from a natural language description.
-
-Press __Generate__ to send a POST request to the API server.
-The resulting NPZ file is loaded and the skeleton is rebuilt on every
-frame, driving 77 SOMA joints as points with KineFX `name`, `transform`,
-and `localtransform` attributes.
+The node connects to a running [Kimodo|https://github.com/nv-tlabs/kimodo]
+inference server (resident mode: the model is preloaded once). Press __Generate__
+to submit a prompt; the finished NPZ is downloaded over HTTP into __Download Dir__
+and the skeleton is rebuilt each frame. The server can run on this machine or a
+remote GPU box — set __API Server URL__ accordingly.
 
 == Quick Start ==
 
-# Start the Docker services (text-encoder + api) as described in the README.
-# Set __Prompt__ to describe the desired motion, and __Duration__ in seconds.
-# Press __Generate__. Watch __Status__ for progress; the node cooks automatically
-  when the NPZ is ready. Use __Cancel__ to abort a running job.
-# Set the Houdini frame range to match the clip length and play back.
-# Connect __output0__ to a __Rig Pose SOP__ (or any KineFX node) and use
-  __output1__ as the rest skeleton.
+# Start the Docker services (`docker compose -f docker-compose.bridge.yaml up text-encoder -d`, then `up api -d`).
+# Set __Prompt__ and __Duration__, then press __Generate__. Watch __Status__; the
+  node cooks automatically when the NPZ has downloaded.
+# Set the Houdini frame range to match the clip and play back.
+# To get a deforming body: drop a __Labs/KineFX Joint Deform__ (`kinefx::jointdeform`)
+  and wire input 0 = __Rest Geometry__ (output 2), input 1 = __Capture Pose__
+  (output 1), input 2 = __Animated Pose__ (output 0).
 
 == Parameters ==
 
-Server URL:
-    URL of the running `kimodo_server` FastAPI service.
-    Default: `http://localhost:8001`
+API Server URL:
+    URL of the running `kimodo_server`. Default: `http://localhost:8001`.
+    Point this at the GPU host if the server runs elsewhere.
 
-Host Output Dir:
-    The host-side directory mapped to `/workspace/output` inside Docker.
-    Must contain `dev_reference.npz` when running in mock mode.
+Download Dir:
+    Local folder where finished NPZ files are downloaded from the server over
+    HTTP. Default: `$HIP/kimodo_cache`.
 
 Prompt:
     Natural language description of the desired motion.
@@ -46,48 +44,52 @@ Duration (s):
     Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames.
 
 Model:
-    Kimodo model variant to use. Default: Kimodo-SOMA-RP-v1.1.
+    Kimodo model variant. Default: Kimodo-SOMA-RP-v1.1.
 
 Force Regenerate:
-    Bypass the server cache and re-run inference even if a clip with the
-    same prompt, duration, and model already exists.
+    Bypass the server cache and re-run inference even if a matching clip exists.
 
 Generate:
-    Submits the prompt to `<Server URL>/generate` and returns immediately
-    with a job ID. Inference runs on the server while a background thread
-    polls for progress, so Houdini stays responsive. When the job finishes,
-    __NPZ Path__ is updated and the node recooks automatically.
+    Submits the prompt to `<API Server URL>/generate` and returns immediately with
+    a job ID. A background thread polls for progress, so Houdini stays responsive.
+    When done, the NPZ is downloaded to __Download Dir__, __NPZ Path__ is set to it,
+    and the node recooks.
 
 Cancel:
-    Cancels the running job (terminates the server-side inference process).
-    Only meaningful while a job is in progress.
+    Cancels the job. The resident server can't interrupt an already-running
+    generation — Cancel stops a queued job or discards the result.
 
 Status:
-    Read-only. Shows the live job state: Queued, Running... (Ns) with elapsed
-    seconds, Done (Ns), Failed, or Cancelled.
+    Read-only. Shows the live job state: Queued, Running... (Ns), Downloading...,
+    Done (Ns), Failed, or Cancelled.
 
 NPZ Path:
-    Path to the NPZ file from the last Generate call.
-    Can be set manually to load a pre-existing NPZ.
+    The `.npz` the node reads to build the skeleton (a file field, *.npz). Set by
+    Generate, or point it at any compatible NPZ by hand to load a clip produced
+    outside this node — no Generate or server needed.
 
 == Output Geometry ==
 
-The node has two outputs, both 77-joint SOMA skeletons with polyline
-primitives connecting each parent-child pair. World rotations are stored
-in Houdini's row-vector convention (transposed from Kimodo's matrices).
+Four outputs, all in the same world space. World rotations use Houdini's
+row-vector convention (transposed from Kimodo's matrices).
 
-:output0:
-    Animated skeleton — rebuilds every frame from the NPZ file. Carries
-    `name`, `path`, `parent_id`, `transform` (float[9] world-space
-    rotation) and `localtransform` (float[16] local 4x4, row-major).
+:output 0 — Animated Pose:
+    Per-frame animated skeleton. Carries `name`, `path`, `parent_id`, `transform`
+    (float[9] world rotation) and `localtransform` (float[16] local 4x4).
 
-:output1:
-    T-pose (rest) skeleton — static, does not depend on the NPZ. Carries
-    `name` and `transform` (float[9] world-space rotation); joint
-    positions are the SOMA77 neutral pose from Kimodo's skeleton definition.
+:output 1 — Capture Pose:
+    The A-pose rest skeleton the mesh is bound to (feet on floor). `name` +
+    `transform`. Use as the rest skeleton for the deformer.
 
-Connect output0 to a __Rig Pose SOP__ for KineFX rig binding; use output1
-as the rest skeleton for __Bone Capture__ or __Skin SOP__.
+:output 2 — Rest Geometry:
+    The SOMA77 body mesh in its bind pose, with a KineFX `boneCapture` attribute
+    (weights + bind from Kimodo's skinning). Drive it with `kinefx::jointdeform`.
+
+:output 3 — T-Pose:
+    A T-pose skeleton (`name` + `transform`) for reference / retargeting.
+
+Deform graph: `kinefx::jointdeform` with input 0 = output 2, input 1 = output 1,
+input 2 = output 0 — the body follows the animation and returns to bind at rest.
 
 == SOMA77 Skeleton Hierarchy ==
 
@@ -103,15 +105,17 @@ Hips (0)
 
 == Notes ==
 
-* The server runs in __mock mode__ by default (returns dev_reference.npz
-  without re-running inference). Set MOCK_MODE=0 in the Docker compose
-  environment to enable live generation.
-* Port 8000 is reserved by Docker Desktop on Windows; the API server runs
-  on port __8001__ by default.
-* Results are cached by prompt + duration + model. Re-running with identical
-  settings returns instantly (Status shows "Done (cached)"); enable
-  __Force Regenerate__ to bypass the cache.
+* The server preloads the model and loads weights from the local HuggingFace
+  cache offline; the weights must be cached first (a prior generation, or
+  `huggingface-cli download nvidia/Kimodo-SOMA-RP-v1.1`).
+* The model stays resident in VRAM while the server runs — stop the api container
+  to free it.
+* __mock mode__ (MOCK_MODE=1) returns `dev_reference.npz` without inference, for
+  HDA development without a GPU.
+* Port 8000 is reserved by Docker Desktop on Windows; the API defaults to __8001__.
+* Results are cached by prompt + duration + model; enable __Force Regenerate__ to
+  bypass the cache.
 
 @related
-- [Rig Pose SOP|Node:sop/rigpose]
-- [Bone Deform SOP|Node:sop/bonedeform]
+- [Joint Deform|Node:sop/kinefx::jointdeform]
+- [Rig Pose|Node:sop/kinefx::rigpose]

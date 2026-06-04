@@ -16,34 +16,15 @@ A personal research and development project that bridges [NVIDIA Kimodo](https:/
 
 The bridge provides:
 
-- **`docker-compose.hybrid.yaml`** — deploys Kimodo in Hybrid mode (diffusion on GPU, text encoder on CPU) with a FastAPI inference server
-- **`docker-compose.resident.yaml`** — an alternative deployment that preloads the model once at startup and serves inference in-process (no per-request reload), for faster iteration when you have VRAM to spare — locally or on a remote GPU box
-- **`kimodo_server.py`** — a FastAPI wrapper that exposes `/generate`, `/health` and a per-job NPZ download endpoint; supports mock mode for development without running inference, and a `subprocess` (default) or `resident` inference mode
-- **`kimodo_motion` HDA** — a Houdini SOP node that sends a prompt to the server, receives the output NPZ, and reconstructs the SOMA77 skeleton as KineFX-compatible geometry. It has two outputs — a per-frame animated skeleton and a static T-pose rest skeleton — with bones drawn as polyline primitives and joint `transform` / `localtransform` attributes in Houdini's row-vector convention (see [HDA Documentation](hda/README.md) for the full attribute layout)
-- **`kimodo_motion_remote` HDA** — the same node for the resident deployment; it downloads the NPZ over HTTP instead of reading a mounted volume, so the server can run locally or on another machine
+- **`docker-compose.bridge.yaml`** — deploys Kimodo with a FastAPI inference server. The model is preloaded once at startup and inference runs in-process (no per-request reload). The server can run on your workstation or a separate GPU box; the model stays resident in VRAM while it runs.
+- **`kimodo_server.py`** — a FastAPI wrapper exposing `/generate`, `/health` and a per-job NPZ download endpoint. Supports a mock mode for development without a GPU.
+- **`kimodo_motion` HDA** — a Houdini SOP node that sends a prompt to the server, downloads the resulting NPZ over HTTP, and rebuilds the SOMA77 motion as KineFX-compatible geometry. Four outputs:
+  - **Animated Pose** — per-frame skeleton (`name`, `path`, `parent_id`, `transform`, `localtransform`)
+  - **Capture Pose** — A-pose rest skeleton the body mesh is bound to (feet on floor)
+  - **Rest Geometry** — skinned SOMA77 body mesh with a KineFX `boneCapture` attribute
+  - **T-Pose** — a T-pose skeleton for reference / retargeting
 
----
-
-## Deployment options
-
-The server runs in one of two modes — pick one before you deploy. The
-[Setup Guide](docs/setup.md) has the step-by-step for each.
-
-| | Hybrid (default) | Resident |
-|---|---|---|
-| Inference | new subprocess per request; model reloaded each call (~1–3 min overhead) | model preloaded once; every generation skips the reload |
-| VRAM | used only during a generation, freed afterwards | model stays resident in VRAM while the server runs |
-| Server location | local — Houdini reads the NPZ from a mounted volume | local **or** remote — Houdini downloads the NPZ over HTTP |
-| Houdini node | `kimodo_motion` | `kimodo_motion_remote` |
-| Compose file | `docker-compose.hybrid.yaml` | `docker-compose.resident.yaml` |
-
-**Which to use:** start with **Hybrid** — it's the simplest and keeps VRAM free for
-Houdini / Karma on the same box. Switch to **Resident** if you generate frequently and
-have VRAM to spare (or a dedicated / remote GPU box): preloading removes the per-request
-reload, so iteration is much faster — just keep an eye on VRAM, since the model stays loaded.
-
-Only one runs at a time on a machine (same port / container name); switch by stopping one
-compose and starting the other.
+  Drive the mesh with `kinefx::jointdeform` (Rest Geometry + Capture Pose + Animated Pose). See [HDA Documentation](hda/README.md) for parameters and the full attribute layout.
 
 ---
 
@@ -59,10 +40,10 @@ compose and starting the other.
 ## Current limitations
 
 - **English prompts only** — Kimodo's text encoder was trained on English descriptions
-- **Slow first generation** — the first `/generate` call in production mode downloads model weights from HuggingFace (~10 min) and loads the model into GPU memory; subsequent calls within the same server session are faster. Identical requests (same prompt, duration, model) are served from cache and return instantly
-- **Per-request model reload (Hybrid mode)** — the default `subprocess` inference mode spawns a new process per request, reloading the model each time (~1–3 min overhead). The `resident` mode avoids this by keeping the model in memory, at the cost of resident VRAM — see [Deployment options](#deployment-options). Background: [#1](../../issues/1)
+- **Slow server startup** — the server preloads the model at startup (and the text encoder loads on CPU); generations afterwards skip the load. The model is read from the local HuggingFace cache offline, so the weights must be cached first (a one-time `huggingface-cli download nvidia/Kimodo-SOMA-RP-v1.1`). Identical requests (same prompt, duration, model) are served from cache and return instantly.
+- **Resident VRAM** — the model stays in VRAM while the `api` container runs; stop the container to free it. The in-process design (preload + serve) was tracked in [#1](../../issues/1).
 - **SOMA77 skeleton only** — retargeting to other rigs (e.g. UE5 Mannequin, Mixamo) requires an additional step not covered here
-- **GPU required** — Hybrid mode needs an NVIDIA GPU with ≥ 3 GB VRAM; CPU-only inference is not supported by Kimodo
+- **GPU required** — needs an NVIDIA GPU with ≥ 4 GB VRAM (≥ 6 GB recommended if sharing with Houdini); CPU-only inference is not supported by Kimodo
 - **Mock mode ignores prompt** — when `MOCK_MODE=1`, the server always returns the same `dev_reference.npz` regardless of the prompt; switch to `MOCK_MODE=0` for real generation
 
 ---
@@ -71,18 +52,17 @@ compose and starting the other.
 
 ```
 Houdini (kimodo_motion SOP)
-    │  HTTP POST /generate
+    │  POST /generate ─────────────►  kimodo_server (FastAPI, port 8001)
+    │                                   │  resident model (preloaded), inference in-process
+    │                                   ├──► text-encoder service (CPU, 9550) — encodes prompt
+    │                                   └──► Kimodo diffusion (GPU) — generates motion
+    │  GET /jobs/{id}/download ◄──────  writes .npz to OUTPUT_DIR
     ▼
-kimodo_server (FastAPI, port 8001)
-    │  subprocess: python -m kimodo.scripts.generate
-    ├──► text-encoder service (CPU, port 9550)  — encodes the prompt
-    └──► Kimodo diffusion (GPU)  — generates motion
-    │  returns .npz path
-    ▼
-kimodo_motion SOP reads NPZ → outputs 77-point SOMA skeleton per frame
+kimodo_motion SOP → 4 outputs: Animated Pose / Capture Pose / Rest Geometry / T-Pose
+    └─► kinefx::jointdeform (mesh + skeletons) → deformed body
 ```
 
-**Hybrid mode:** diffusion runs on GPU (< 3 GB VRAM); text encoding is offloaded to CPU to reduce VRAM pressure.
+Diffusion runs on GPU (~3–4 GB VRAM resident); text encoding is offloaded to CPU to reduce VRAM pressure. The model stays resident in the `api` container's VRAM while it runs. Houdini fetches the NPZ over HTTP, so the server can live on a separate GPU box.
 
 ---
 

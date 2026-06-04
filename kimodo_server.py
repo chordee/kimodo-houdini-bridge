@@ -5,7 +5,6 @@ import hashlib
 import json
 import logging
 import os
-import sys
 import time as _time
 import uuid
 from typing import Optional
@@ -26,11 +25,8 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 DEV_REFERENCE = OUTPUT_DIR / "dev_reference.npz"
 MOCK_MODE = os.environ.get("MOCK_MODE", "1") == "1"
-TEXT_ENCODER_URL = os.environ.get("TEXT_ENCODER_URL", "http://text-encoder:9550/")
 
-# subprocess (default, one fresh process per request) | resident (model preloaded in-process)
-INFERENCE_MODE = os.environ.get("INFERENCE_MODE", "subprocess")
-# Model to preload at startup in resident mode; empty falls back to kimodo.DEFAULT_MODEL.
+# Model to preload at startup; empty falls back to kimodo.DEFAULT_MODEL.
 RESIDENT_MODEL = os.environ.get("KIMODO_MODEL", "")
 
 _jobs: dict[str, dict] = {}
@@ -93,8 +89,8 @@ def _infer_resident(req: "GenerateRequest", out_path: pathlib.Path) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if INFERENCE_MODE == "resident" and not MOCK_MODE:
-        # Preload now so the first /generate skips the model load.
+    if not MOCK_MODE:
+        # Preload the model now so the first /generate skips the load.
         await asyncio.to_thread(_ensure_model, RESIDENT_MODEL)
     yield
 
@@ -129,7 +125,7 @@ def _cache_key(prompt: str, duration: float, model: str) -> str:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "mock_mode": MOCK_MODE, "inference_mode": INFERENCE_MODE}
+    return {"status": "ok", "mock_mode": MOCK_MODE}
 
 
 @app.get("/jobs/{job_id}/download")
@@ -186,9 +182,8 @@ async def cancel_job(job_id: str) -> JobStatus:
     job = _jobs[job_id]
     if job["status"] not in ("queued", "running"):
         return job_status(job_id)
-    proc = job.get("proc")
-    if proc and proc.returncode is None:
-        proc.terminate()
+    # In-process inference can't be hard-interrupted: mark cancelled so a queued
+    # job is skipped and a finished result is discarded.
     job["status"] = "cancelled"
     job["elapsed"] = round(_time.monotonic() - job.get("started_at", _time.monotonic()), 1)
     log.info("[CANCEL] %s", job_id[:8])
@@ -224,48 +219,17 @@ async def _run_job(job_id: str, req: GenerateRequest) -> None:
                        cached=True, elapsed=round(_time.monotonic() - job["started_at"], 1))
             return
 
-        if INFERENCE_MODE == "resident":
-            # In-process inference, serialised on the single GPU. Cannot be hard-
-            # cancelled mid-run; a cancel marks the job and the result is discarded.
-            async with _model_lock:
-                if job.get("status") == "cancelled":
-                    job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
-                    return
-                log.info("[GEN-resident] %s prompt=%r", job_id[:8], req.prompt)
-                await asyncio.to_thread(_infer_resident, req, out_path)
-            if job.get("status") == "cancelled":  # cancelled while inference ran
+        # In-process inference, serialised on the single GPU. Cannot be hard-
+        # cancelled mid-run; a cancel marks the job and the result is discarded.
+        async with _model_lock:
+            if job.get("status") == "cancelled":
                 job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
                 return
-        else:
-            cmd = [
-                sys.executable, "-m", "kimodo.scripts.generate",
-                req.prompt,
-                "--model", req.model,
-                "--duration", str(req.duration),
-                "--output", str(out_path),
-            ]
-            log.info("[GEN] %s %s", job_id[:8], " ".join(cmd))
-
-            env = os.environ.copy()
-            env["TEXT_ENCODER_URL"] = TEXT_ENCODER_URL
-
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=env,
-            )
-            job["proc"] = proc
-            stdout, stderr = await proc.communicate()
-
-            if job.get("status") == "cancelled":  # cancel terminated the subprocess
-                job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
-                return
-            if proc.returncode != 0:
-                log.error("[FAIL] %s\n%s", job_id[:8], stderr.decode())
-                job.update(status="failed", error=stderr.decode()[-500:],
-                           elapsed=round(_time.monotonic() - job["started_at"], 1))
-                return
+            log.info("[GEN] %s prompt=%r", job_id[:8], req.prompt)
+            await asyncio.to_thread(_infer_resident, req, out_path)
+        if job.get("status") == "cancelled":  # cancelled while inference ran
+            job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
+            return
 
         elapsed = round(_time.monotonic() - job["started_at"], 1)
         if not out_path.exists():

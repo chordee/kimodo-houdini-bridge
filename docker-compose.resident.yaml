@@ -46,6 +46,12 @@ services:
       - TEXT_ENCODER_URL=http://text-encoder:9550/
       - HF_HOME=/workspace/.cache/huggingface
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
+      # Resident preloads the model at startup; load from the local HF cache and
+      # avoid the network so a flaky/stalling HF download can't hang startup.
+      # The model weights must already be cached (e.g. from a hybrid-mode run, or
+      # `huggingface-cli download`). Set HF_HUB_OFFLINE=0 for a one-time download.
+      - HF_HUB_OFFLINE=${HF_HUB_OFFLINE:-1}
+      - HF_HUB_DISABLE_XET=1   # the hf_xet downloader was observed to hang on this setup
     deploy:
       resources:
         reservations:

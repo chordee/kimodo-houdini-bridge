@@ -121,6 +121,11 @@ docker compose -f docker-compose.resident.yaml up api -d
 
 Set the node's **API Server URL** to the box running the resident server.
 
+The resident server loads the model from the local HuggingFace cache at startup and
+skips the network (`HF_HUB_OFFLINE=1`), so a stalling HF download can't hang startup.
+The weights must already be cached — populate them once via a hybrid-mode run or
+`huggingface-cli download`, or start with `HF_HUB_OFFLINE=0` for a one-time download.
+
 ---
 
 ## Rebuilding the HDA

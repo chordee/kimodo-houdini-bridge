@@ -189,6 +189,8 @@ docker compose -f docker-compose.resident.yaml up api -d
 
 將節點的 **API Server URL** 設為執行常駐伺服器的主機位址。
 
+常駐伺服器在啟動時從本機 HuggingFace 快取載入模型並略過網路（`HF_HUB_OFFLINE=1`），以免某次卡住的 HF 下載拖住啟動。權重必須先存在快取中——先用 hybrid 模式跑一次或 `huggingface-cli download` 取得，或首次以 `HF_HUB_OFFLINE=0` 啟動下載一次。
+
 ---
 
 ## 重建 HDA

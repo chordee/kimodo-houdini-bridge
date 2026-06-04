@@ -6,6 +6,24 @@ End-to-end setup, from the Docker inference server to the Houdini HDA. The serve
 preloads the Kimodo model once and serves inference in-process; Houdini fetches the
 result over HTTP, so the server can run on this machine or a separate GPU box.
 
+## Requirements
+
+- **Docker Desktop** — Windows: WSL2 backend with GPU support enabled; Linux: Docker
+  Engine + the NVIDIA Container Toolkit.
+- **NVIDIA GPU, ≥ 4 GB VRAM** (≥ 6 GB recommended if the same GPU also drives Houdini).
+  CPU-only inference is not supported by Kimodo.
+- **~20 GB free disk** — the CUDA base image (~10 GB) plus the built `kimodo:1.0`
+  image, model weights and the HuggingFace cache.
+- **HuggingFace account + access token** — required to download the Kimodo model
+  weights. Accept the model's terms on its HuggingFace page first, then create a token.
+- **Houdini 20.5+**.
+
+> ⚠️ **VRAM stays occupied while the server runs.** The `api` container preloads the
+> model and keeps it resident in VRAM (~3–4 GB) for its whole lifetime — it is **not**
+> freed between generations. Stop it when you're done generating to reclaim the GPU
+> (e.g. before a heavy Houdini / Karma render):
+> `docker compose -f docker-compose.bridge.yaml stop api`
+
 ## 1. Environment validation
 
 ```bash
@@ -75,9 +93,13 @@ curl http://localhost:8001/health     # {"status":"ok","mock_mode":false}
 > **Mock mode** (`MOCK_MODE=1`, the default) skips inference and returns
 > `output/dev_reference.npz` — handy for HDA development without a GPU.
 >
-> **Port note:** Port 8000 is reserved by Docker Desktop on Windows; the API defaults
-> to **8001**. Use another port with `KIMODO_PORT=8002 docker compose -f docker-compose.bridge.yaml up api -d`
-> and set the node's **API Server URL** to match.
+> **Changing the port:** the API defaults to **8001** (port 8000 is reserved by Docker
+> Desktop on Windows). If 8001 is already in use, set `KIMODO_PORT` when starting the
+> api and point the node's **API Server URL** at the same port:
+> ```bash
+> KIMODO_PORT=8002 MOCK_MODE=0 docker compose -f docker-compose.bridge.yaml up api -d
+> # then in the HDA: API Server URL = http://localhost:8002
+> ```
 
 ## 6. Houdini Python packages
 

@@ -5,6 +5,19 @@
 從 Docker 推論伺服器到 Houdini HDA 的完整流程。伺服器在啟動時預載 Kimodo 模型、
 in-process 推論;Houdini 透過 HTTP 取回結果,所以伺服器可在本機或另一台 GPU 機器。
 
+## 需求
+
+- **Docker Desktop** —— Windows:WSL2 後端並啟用 GPU 支援;Linux:Docker Engine + NVIDIA Container Toolkit。
+- **NVIDIA GPU,≥ 4 GB VRAM**(若同一張卡也要跑 Houdini,建議 ≥ 6 GB)。Kimodo 不支援純 CPU 推論。
+- **約 20 GB 可用硬碟** —— CUDA base image(約 10 GB)加上建好的 `kimodo:1.0` image、模型權重與 HuggingFace 快取。
+- **HuggingFace 帳號 + access token** —— 下載 Kimodo 模型權重需要。請先到模型的 HuggingFace 頁面接受授權條款,再建立 token。
+- **Houdini 20.5+**。
+
+> ⚠️ **伺服器執行期間會持續佔用 VRAM。** `api` 容器啟動時預載模型,並在整個執行期間
+> 把模型常駐在 VRAM(約 3–4 GB)——**不會**在每次生成之間釋放。生成完要把它停掉以釋放
+> GPU(例如在跑吃重的 Houdini / Karma 算圖前):
+> `docker compose -f docker-compose.bridge.yaml stop api`
+
 ## 1. 環境檢查
 
 ```bash
@@ -71,9 +84,12 @@ curl http://localhost:8001/health     # {"status":"ok","mock_mode":false}
 > **Mock 模式**（`MOCK_MODE=1`,預設）跳過推論、回傳 `output/dev_reference.npz`
 > —— 適合無 GPU 開發 HDA。
 >
-> **埠號注意：** Windows 上 8000 被 Docker Desktop 佔用,API 預設 **8001**。
-> 要換埠:`KIMODO_PORT=8002 docker compose -f docker-compose.bridge.yaml up api -d`,
-> 並把節點的 **API Server URL** 改成對應埠號。
+> **更改埠號：** API 預設 **8001**(Windows 上 8000 被 Docker Desktop 佔用)。
+> 若 8001 已被占用,啟動 api 時設 `KIMODO_PORT`,並把節點的 **API Server URL** 指到同一埠:
+> ```bash
+> KIMODO_PORT=8002 MOCK_MODE=0 docker compose -f docker-compose.bridge.yaml up api -d
+> # 然後在 HDA:API Server URL = http://localhost:8002
+> ```
 
 ## 6. Houdini Python 套件
 

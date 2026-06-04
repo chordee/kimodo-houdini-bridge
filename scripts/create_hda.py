@@ -15,94 +15,24 @@ _REPO     = os.path.dirname(_HERE)
 _HDA_PATH        = os.path.join(_REPO, "kimodo_motion.hda")
 _HDA_REMOTE_PATH = os.path.join(_REPO, "kimodo_motion_remote.hda")
 
+# Embedded geometry built by scripts/build_skin.py (run it first). When present,
+# the remote HDA gains the A-pose skeleton (output1) and skin mesh (output2).
+_SKIN_BGEO  = os.path.join(_REPO, "skin.bgeo.sc")
+_APOSE_BGEO = os.path.join(_REPO, "apose.bgeo.sc")
+
+
+def _skin_sections():
+    if os.path.exists(_SKIN_BGEO) and os.path.exists(_APOSE_BGEO):
+        return {
+            "skin.bgeo.sc":  open(_SKIN_BGEO, "rb").read(),
+            "apose.bgeo.sc": open(_APOSE_BGEO, "rb").read(),
+        }
+    return None
+
 _NPZ_DEFAULT        = sys.argv[1] if len(sys.argv) > 1 else ""
 _HOST_OUTPUT_DEFAULT = sys.argv[2] if len(sys.argv) > 2 else ""
 
-# Cook script runs inside the subnet's Python SOP.
-# hou.pwd() = the Python SOP; .parent() = the subnet = the HDA node.
-# Bone-aligned rest rotations (world-space, raw Kimodo column-vector) from
-# standard_t_pose_global_offsets_rots.p. Shared by both cook scripts: output1
-# (T-pose) writes these transposed; output0 (animated) right-multiplies them
-# onto global_rot_mats so the animated joint frames share output1's bone axes.
-TPOSE_ROTS = [
-    (0.0,0.0,1.0,0.9999946,0.0033239,0.0,-0.003324,0.9999946,0.0),
-    (-0.0,-1e-07,1.0,0.9999914,0.0041855,0.0,-0.0041856,0.9999914,1e-07),
-    (-1e-07,-1e-07,1.0,0.9942107,0.1074491,1e-07,-0.1074492,0.9942107,0.0),
-    (-2e-07,-0.0,1.0,0.9999939,0.0035373,2e-07,-0.0035374,0.9999939,0.0),
-    (-4e-07,0.0,1.0,0.9581757,-0.2861809,4e-07,0.2861808,0.9581757,1e-07),
-    (-7e-07,0.0,1.0,0.9527641,-0.3037117,7e-07,0.3037117,0.9527641,2e-07),
-    (-1.4e-06,-6e-07,1.0,0.9930767,0.1174687,1.4e-06,-0.1174687,0.9930767,5e-07),
-    (-1e-07,-1e-07,1.0,0.9930767,0.1174687,1e-07,-0.1174687,0.9930767,1e-07),
-    (-2.7e-06,-6e-07,1.0,0.9930767,0.1174687,2.8e-06,-0.1174687,0.9930767,3e-07),
-    (0.0044459,0.066037,0.9978073,0.9977387,-0.0672141,2.8e-06,0.0670668,0.9955509,-0.0661865),
-    (-0.0044515,-0.0660373,0.9978072,0.9977386,-0.0672145,2.8e-06,0.0670668,0.9955509,0.0661871),
-    (0.93823,0.3460122,-1e-07,0.0,0.0,-1.0000001,-0.3460123,0.9382302,1e-07),
-    (1.0,9e-05,-1e-07,-0.0,0.0,-1.0000001,-9e-05,1.0000001,1e-07),
-    (1.0,-9.64e-05,-1e-07,-0.0,0.0,-1.0000001,9.64e-05,1.0000001,1e-07),
-    (1.0,-0.0001014,5.22e-05,3.44e-05,-0.1686946,-0.9856685,0.0001087,0.9856685,-0.1686945),
-    (0.8528316,-0.4901682,0.1800374,-0.3885245,-0.8259889,-0.4084009,0.3488939,0.2783482,-0.8948718),
-    (1.0,-1e-07,1e-07,0.0,-1.0000001,0.0,1e-07,-0.0,-1.0000001),
-    (1.0,-1e-07,1e-07,0.0,-1.0000001,0.0,1e-07,-0.0,-1.0000001),
-    (1.0,-1e-07,1e-07,0.0,-1.0000001,0.0,1e-07,-0.0,-1.0000001),
-    (0.9996048,-0.0274828,0.0059244,0.0018941,-0.1444177,-0.9895151,0.0280502,0.9891352,-0.1443085),
-    (1.0,-1e-07,-1e-07,0.0,0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (1.0,-1e-07,-1e-07,0.0,0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (0.9970345,0.0434521,-0.0635141,-0.0652273,0.0392158,-0.9970998,-0.0408354,0.9982857,0.0419338),
-    (0.9970345,0.0434521,-0.0635141,-0.0652273,0.0392158,-0.9970998,-0.0408354,0.9982857,0.0419338),
-    (0.9862972,0.1542508,-0.0585203,-0.0413074,-0.1125238,-0.9927902,-0.1597236,0.9816034,-0.1046102),
-    (1.0,-0.0,-1e-07,0.0,0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (1.0,-0.0,-1e-07,0.0,0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (0.9918351,0.0212376,-0.1257464,-0.1267932,0.0585789,-0.9901981,-0.0136633,0.9980569,0.0607934),
-    (0.9918351,0.0212376,-0.1257464,-0.1267932,0.0585789,-0.9901981,-0.0136633,0.9980569,0.0607934),
-    (0.9703878,0.2195549,-0.1007143,-0.0805872,-0.0987975,-0.9918392,-0.2277135,0.9705848,-0.0781785),
-    (1.0,-0.0,-1e-07,0.0,0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (1.0,-0.0,-1e-07,0.0,0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (0.9991961,0.0007907,0.0400832,0.040091,-0.0187818,-0.9990197,-3.7e-05,0.9998233,-0.0187984),
-    (0.9991961,0.0007907,0.0400832,0.040091,-0.0187818,-0.9990197,-3.7e-05,0.9998233,-0.0187984),
-    (0.9168348,0.3131903,-0.2476405,-0.2398743,-0.0637513,-0.9687086,-0.3191775,0.9475483,0.016677),
-    (1.0,-1e-07,-1e-07,0.0,-0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (1.0,-1e-07,-1e-07,0.0,-0.0,-1.0000001,1e-07,1.0000001,1e-07),
-    (0.9962963,-0.0268474,-0.0816875,-0.0808362,0.0313954,-0.996233,0.0293109,0.9991466,0.029109),
-    (0.9962963,-0.0268474,-0.0816875,-0.0808362,0.0313954,-0.996233,0.0293109,0.9991466,0.029109),
-    (0.9382302,0.3460122,-1e-07,-2e-07,0.0,1.0000002,0.3460123,-0.9382303,-1e-07),
-    (1.0000001,9.02e-05,-2e-07,-1e-07,0.0,1.0000002,9.02e-05,-1.0000002,-1e-07),
-    (1.0000001,-9.66e-05,-2e-07,-1e-07,0.0,1.0000002,-9.66e-05,-1.0000004,-1e-07),
-    (1.0000001,-0.0001014,5.22e-05,-3.46e-05,0.1686946,0.9856687,-0.0001087,-0.9856687,0.1686945),
-    (0.8528439,-0.4901527,0.180022,0.3885252,0.8260028,0.4083724,-0.3488635,-0.2783349,0.894888),
-    (1.0000001,-1e-07,-0.0,-2e-07,1.0000002,-1e-07,0.0,-0.0,1.0000002),
-    (1.0000001,-1e-07,-0.0,-2e-07,1.0000002,-1e-07,0.0,-0.0,1.0000002),
-    (1.0000001,-1e-07,-0.0,-2e-07,1.0000002,-1e-07,0.0,-0.0,1.0000002),
-    (0.9996034,-0.0275195,0.0060032,-0.0019657,0.1444625,0.9895086,-0.028098,-0.9891279,0.1443509),
-    (1.0000001,-0.0,-1e-07,-1e-07,1e-07,1.0000002,-0.0,-1.0000004,-0.0),
-    (1.0000001,-0.0,-1e-07,-1e-07,1e-07,1.0000002,-0.0,-1.0000004,-0.0),
-    (0.9970356,0.0434374,-0.0635091,0.0652213,-0.0392136,0.9971003,0.0408211,-0.9982866,-0.0419305),
-    (0.9970356,0.0434374,-0.0635091,0.0652213,-0.0392136,0.9971003,0.0408211,-0.9982866,-0.0419305),
-    (0.9862986,0.1542446,-0.0585147,0.0413026,0.1125216,0.9927908,0.1597168,-0.9816049,0.1046091),
-    (1.0000001,-0.0,-1e-07,-1e-07,1e-07,1.0000002,-0.0,-1.0000004,-1e-07),
-    (1.0000001,-0.0,-1e-07,-1e-07,1e-07,1.0000002,-0.0,-1.0000004,-1e-07),
-    (0.9918342,0.0212351,-0.1257546,0.1268011,-0.0585851,0.9901969,0.0136596,-0.9980568,-0.0607994),
-    (0.9918342,0.0212351,-0.1257546,0.1268011,-0.0585851,0.9901969,0.0136596,-0.9980568,-0.0607994),
-    (0.9703894,0.2195512,-0.1007068,0.0805799,0.0987964,0.9918401,0.2277091,-0.970586,0.0781794),
-    (1.0000001,0.0,-1e-07,-1e-07,1e-07,1.0000002,-0.0,-1.0000004,-1e-07),
-    (1.0000001,0.0,-1e-07,-1e-07,1e-07,1.0000002,-0.0,-1.0000004,-1e-07),
-    (0.9991974,0.0007796,0.040053,-0.0400609,0.0187679,0.9990213,2.71e-05,-0.9998239,0.0187839),
-    (0.9991974,0.0007796,0.040053,-0.0400609,0.0187679,0.9990213,2.71e-05,-0.9998239,0.0187839),
-    (0.9168393,0.3131794,-0.2476381,0.2398725,0.063748,0.9687094,0.3191662,-0.9475523,-0.0166766),
-    (1.0000001,-0.0,-1e-07,-2e-07,1e-07,1.0000002,-0.0,-1.0000002,-0.0),
-    (1.0000001,-0.0,-1e-07,-2e-07,1e-07,1.0000002,-0.0,-1.0000002,-0.0),
-    (0.9963011,-0.0268437,-0.0816325,0.0807818,-0.0313735,0.9962382,-0.0293039,-0.9991475,-0.0290891),
-    (0.9963011,-0.0268437,-0.0816325,0.0807818,-0.0313735,0.9962382,-0.0293039,-0.9991475,-0.0290891),
-    (0.0,0.0,1.0,-0.9998277,0.0185734,0.0,-0.0185734,-0.9998277,0.0),
-    (0.0,0.0,1.0,-0.9966071,0.0823082,0.0,-0.0823082,-0.9966071,0.0),
-    (0.0,0.0,1.0,-0.3571595,-0.9340436,0.0,0.9340436,-0.3571595,0.0),
-    (-0.0014164,0.0004114,0.9999989,-0.2789316,-0.9603112,-0.0,0.9603102,-0.2789312,0.001475),
-    (-0.0014234,0.0003866,0.9999989,-0.2621294,-0.965033,-0.0,0.965032,-0.262129,0.001475),
-    (0.0,0.0,1.0,0.9998276,-0.0185742,0.0,0.0185742,0.9998276,0.0),
-    (0.0,0.0,1.0,0.996607,-0.0823081,0.0,0.082308,0.996607,0.0),
-    (-0.0,0.0,1.0,0.3571593,0.9340435,0.0,-0.9340435,0.3571593,-0.0),
-    (-0.0014171,0.0004116,0.9999989,0.2789345,0.9603102,0.0,-0.9603091,0.2789342,-0.0014757),
-    (-0.0014241,0.0003868,0.9999989,0.2621323,0.965032,0.0,-0.965031,0.262132,-0.0014757),
-]
+from _soma_tpose import TPOSE_ROTS
 _TPOSE_SRC = "TPOSE_ROTS = %r\n" % (TPOSE_ROTS,)
 
 _COOK_SCRIPT = r"""
@@ -504,11 +434,32 @@ for i, parent in enumerate(SOMA77_PARENTS):
         prim.addVertex(pts[i])
 """
 
-def build_hda(node_name, description, hda_path, generate_cb, fetch_mode):
+# Cook script for an output that loads geometry embedded in the HDA as a section
+# (used for the A-pose skeleton and the skin mesh). Reads the section bytes from
+# the HDA definition, writes them to a temp file, and loads them — avoids opdef:
+# path resolution and keeps the HDA self-contained.
+_SECTION_LOADER = '''import os, base64, tempfile, hou
+node = hou.pwd()
+name = "%s"
+raw = node.parent().type().definition().sections()[name].contents()
+data = base64.b64decode(raw)
+path = os.path.join(tempfile.gettempdir(), "kimodo_" + name)
+with open(path, "wb") as fh:
+    fh.write(data)
+node.geometry().loadFromFile(path)
+'''
+
+
+def build_hda(node_name, description, hda_path, generate_cb, fetch_mode, skin_sections=None):
     """Build one kimodo HDA. The two flavours share everything except the
     Generate callback and one transport parameter:
       fetch_mode="local"  -> host_output_dir (volume path rewrite)
       fetch_mode="remote" -> download_dir   (HTTP download to a local cache)
+
+    skin_sections: optional {section_name: bytes}. When given, the HDA gets four
+      outputs (0 animated, 1 A-pose rest skeleton, 2 skin mesh, 3 T-pose) with the
+      skeleton/mesh geometry embedded as sections. When None, two outputs
+      (0 animated, 1 T-pose).
     """
     obj = hou.node("/obj")
     geo = obj.createNode("geo", node_name + "_setup")
@@ -526,9 +477,28 @@ def build_hda(node_name, description, hda_path, generate_cb, fetch_mode):
     out0 = subnet.createNode("output", "output0")
     out0.setInput(0, inner)
     out0.parm("outputidx").set(0)
-    out1 = subnet.createNode("output", "output1")
-    out1.setInput(0, rest_sop)
-    out1.parm("outputidx").set(1)
+
+    if skin_sections:
+        apose_sop = subnet.createNode("python", "apose_sop")
+        apose_sop.parm("python").set(_SECTION_LOADER % "apose.bgeo.sc")
+        skin_sop = subnet.createNode("python", "skin_sop")
+        skin_sop.parm("python").set(_SECTION_LOADER % "skin.bgeo.sc")
+        out1 = subnet.createNode("output", "output1")
+        out1.setInput(0, apose_sop)
+        out1.parm("outputidx").set(1)
+        out2 = subnet.createNode("output", "output2")
+        out2.setInput(0, skin_sop)
+        out2.parm("outputidx").set(2)
+        out3 = subnet.createNode("output", "output3")
+        out3.setInput(0, rest_sop)
+        out3.parm("outputidx").set(3)
+        n_outputs = 4
+    else:
+        out1 = subnet.createNode("output", "output1")
+        out1.setInput(0, rest_sop)
+        out1.parm("outputidx").set(1)
+        n_outputs = 2
+
     out0.setDisplayFlag(True)
     out0.setRenderFlag(True)
     subnet.layoutChildren()
@@ -542,7 +512,13 @@ def build_hda(node_name, description, hda_path, generate_cb, fetch_mode):
         version="1.0",
     )
     hda_def = hda_node.type().definition()
-    hda_def.setMaxNumOutputs(2)
+    hda_def.setMaxNumOutputs(n_outputs)
+    if skin_sections:
+        # Store the binary bgeo as base64 text so the section round-trips cleanly
+        # (HDASection.contents() returns str; raw bytes don't survive that).
+        import base64
+        for sname, data in skin_sections.items():
+            hda_def.addSection(sname, base64.b64encode(data).decode("ascii"))
     ptg = hou.ParmTemplateGroup()   # start fresh — no inherited subnet parms
 
     ptg.append(hou.SeparatorParmTemplate("sep_api"))
@@ -627,4 +603,4 @@ def build_hda(node_name, description, hda_path, generate_cb, fetch_mode):
 build_hda("kimodo_motion", "Kimodo Motion Generator",
           _HDA_PATH, _GENERATE_CB, "local")
 build_hda("kimodo_motion_remote", "Kimodo Motion Generator (Remote)",
-          _HDA_REMOTE_PATH, _GENERATE_CB_REMOTE, "remote")
+          _HDA_REMOTE_PATH, _GENERATE_CB_REMOTE, "remote", skin_sections=_skin_sections())

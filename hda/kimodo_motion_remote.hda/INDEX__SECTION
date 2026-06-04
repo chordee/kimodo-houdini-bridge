@@ -4,12 +4,12 @@ Path:         oplib:/Sop/kimodo_motion_remote?Sop/kimodo_motion_remote
 Icon:         SOP_subnet
 Table:        Sop
 License:      
-Extra:        visibleoutputs=2 
+Extra:        visibleoutputs=4 
 User:         
 Inputs:       0 to 0
-Outputs:      2
+Outputs:      4
 Subnet:       true
 Python:       false
 Empty:        false
-Modified:     Thu Jun  4 17:52:33 2026
+Modified:     Thu Jun  4 22:06:57 2026
 

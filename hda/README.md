@@ -2,9 +2,8 @@
 
 [繁體中文](README.zh-TW.md)
 
-This directory contains Houdini Digital Assets for the Kimodo-Houdini bridge.
-Each HDA is stored in **unpacked (VCS-friendly) format** — a directory ending in `.hda/`
-that can be diffed and reviewed in git.
+This directory contains the Houdini Digital Asset for the Kimodo-Houdini bridge,
+stored in **unpacked (VCS-friendly) format** — a directory ending in `.hda/`.
 
 ---
 
@@ -14,56 +13,48 @@ that can be diffed and reviewed in git.
 **Context:** SOP (geometry network)  
 **Houdini:** H20.5+
 
-A SOP node that generates 3D human motion from a natural language prompt via
-the [NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model, outputting a
-77-joint SOMA skeleton compatible with Houdini KineFX.
+A SOP node that generates 3D human motion from a natural language prompt via the
+[NVIDIA Kimodo](https://github.com/nv-tlabs/kimodo) model. It sends the prompt to a
+running `kimodo_server`, downloads the resulting NPZ over HTTP, and rebuilds the
+77-joint SOMA motion as KineFX-compatible geometry — animated skeleton, rest
+skeletons, and a skinned body mesh.
 
 ### Outputs
 
-The node has **two outputs**, both producing a 77-joint SOMA skeleton.
-Polyline primitives connect each parent-child pair for bone visualization.
+Four outputs. World rotations use Houdini's row-vector / row-major convention
+(transposed from Kimodo's column-vector matrices). Skeletons connect each
+parent-child joint pair with a polyline primitive.
 
-| Output | Content | Time-dependent |
-|--------|---------|----------------|
-| **output0** | Animated skeleton — rebuilds every frame from the NPZ file | Yes (`$F`) |
-| **output1** | T-pose (rest) skeleton — static, does not depend on the NPZ | No |
+| # | Label | Content |
+|---|-------|---------|
+| 0 | **Animated Pose** | Per-frame animated skeleton. `name`, `path`, `parent_id`, `transform` (float[9] world rotation), `localtransform` (float[16] local 4×4). |
+| 1 | **Capture Pose** | The A-pose rest skeleton the body mesh is bound to (feet on floor). `name`, `transform`. |
+| 2 | **Rest Geometry** | The SOMA77 body mesh in its bind pose, with a KineFX `boneCapture` attribute (weights + bind from Kimodo's skinning). |
+| 3 | **T-Pose** | A T-pose skeleton (`name`, `transform`) for reference / retargeting. |
 
-World rotations are stored in Houdini's row-vector convention (transposed from
-Kimodo's column-vector matrices), so both outputs are consistent and ready for KineFX.
-
-**output0 (animated)** carries:
-
-| Attribute | Type | Description |
-|-----------|------|-------------|
-| `name` | string | Joint name (e.g. `Hips`, `LeftArm`) |
-| `path` | string | Full hierarchy path (e.g. `/Hips/Spine1/Spine2`) |
-| `parent_id` | int | Parent joint index; -1 for root (`Hips`) |
-| `transform` | float[9] | World-space rotation (row-major 3×3) |
-| `localtransform` | float[16] | Local 4×4 transform relative to parent (row-major) |
-
-**output1 (T-pose)** carries `name` and `transform` (float[9] world-space rotation);
-joint positions are the SOMA77 neutral pose from Kimodo's skeleton definition.
-
-Connect output0 to **Rig Pose SOP** for KineFX rig binding. Use output1 as the rest skeleton input for **Bone Capture** or **Skin SOP**.
+**To deform the body**, drop a **`kinefx::jointdeform`** (Labs/KineFX Joint Deform) and wire:
+input 0 = **Rest Geometry** (output 2), input 1 = **Capture Pose** (output 1),
+input 2 = **Animated Pose** (output 0). The mesh follows the animation and returns to
+the bind pose at rest. (output 0 also drives a **Rig Pose / Bone Deform** workflow directly.)
 
 ### Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| API Server URL | `http://localhost:8001` | URL of the running `kimodo_server` FastAPI service. Change only if you moved the server to a different host or port. If you started the server with a custom `KIMODO_PORT`, set this to match (e.g. `http://localhost:8002`). |
-| Host Output Dir | _(empty)_ | The host-side directory that is volume-mounted to `/workspace/output` inside Docker. The server writes NPZ files here and returns their in-container path; the node rewrites the prefix so Houdini can read the file directly. Must match the volume mount in `docker-compose.hybrid.yaml`. Set this before pressing **Generate**. |
-| Prompt | `a person walks forward` | Natural language description of the desired motion. Be specific: body part, direction, speed, and style all influence the result. Examples: `"a person jogs in a circle"`, `"someone waves with their right hand"`. |
-| Duration (s) | `3.0` | Length of the generated motion in seconds. At 30 fps, 3 s = 90 frames. Longer clips take more inference time. |
-| Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` (Reference Pose) conditions on a rest pose; `SEED` uses a fixed random seed for reproducibility. |
-| Force Regenerate | `off` | Bypass the server cache and re-run inference even if a clip with the same prompt, duration, and model already exists. See [Caching](#caching). |
-| **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. Inference runs on the server while a background thread polls for progress, so **Houdini stays responsive**. When the job finishes, **NPZ Path** is updated and the node recooks automatically. |
-| **Cancel** | — | Cancels the currently running job (terminates the server-side inference process). Only meaningful while a job is in progress. |
-| Status | _(read-only)_ | Shows the live job state: `Queued`, `Running... (Ns)` with elapsed seconds, `Done (Ns)` — or `Done (Ns) (cached)` on a cache hit — `Failed`, or `Cancelled`. Updated by the background poll thread. |
-| NPZ Path | _(empty)_ | The `.npz` file the node reads to build the skeleton — a **file field** with a browse button (filtered to `*.npz`). **Generate** sets it automatically; you can also point it at any compatible NPZ by hand (browse or paste) to load a clip produced outside this node — no Generate or server required. Empty by default: a freshly placed node outputs empty geometry (no error) until this is set. The node recooks whenever the path changes. |
+| API Server URL | `http://localhost:8001` | URL of the running `kimodo_server`. Point at the GPU host if the server runs elsewhere. |
+| Download Dir | `$HIP/kimodo_cache` | Local folder where finished NPZ files are downloaded from the server over HTTP. |
+| Prompt | `a person walks forward` | Natural language description of the motion. Be specific about body part, direction, speed and style. |
+| Duration (s) | `3.0` | Length of the clip in seconds. At 30 fps, 3 s = 90 frames. |
+| Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` conditions on a rest pose; `SEED` uses a fixed seed for reproducibility. |
+| Force Regenerate | `off` | Bypass the server cache and re-run inference even if a matching clip exists. |
+| **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. A background thread polls for progress, so Houdini stays responsive. When done, the NPZ is downloaded to **Download Dir**, **NPZ Path** is set, and the node recooks. |
+| **Cancel** | — | Cancels the job. A resident server can't interrupt an already-running generation — Cancel stops a queued job or discards the result. |
+| Status | _(read-only)_ | Live job state: `Queued`, `Running... (Ns)`, `Downloading...`, `Done (Ns)`, `Failed`, `Cancelled`. |
+| NPZ Path | _(empty)_ | The `.npz` the node reads to build the skeleton — a **file field** (browse, `*.npz`). Set by Generate; you can also point it at any compatible NPZ by hand (no Generate/server needed). Empty = empty geometry until set. |
 
 #### What is an NPZ file?
 
-An NPZ file (NumPy compressed archive) is the output format of Kimodo inference. Each file contains a complete motion clip as arrays:
+An NPZ file (NumPy compressed archive) is Kimodo's inference output. The node reads:
 
 | Key | Shape | Content |
 |-----|-------|---------|
@@ -71,76 +62,45 @@ An NPZ file (NumPy compressed archive) is the output format of Kimodo inference.
 | `global_rot_mats` | `(T, 77, 3, 3)` | World-space joint rotations — **read by the node**; `transform` / `localtransform` are derived from these |
 | `local_rot_mats` | `(T, 77, 3, 3)` | Local rotation matrices (Kimodo output; not required by the node) |
 | `root_positions` | `(T, 3)` | Root (Hips) world position |
-| `foot_contacts` | `(T, 6)` | Boolean foot-contact labels (6 SOMA contact points) |
+| `foot_contacts` | `(T, 6)` | Boolean foot-contact labels |
 
-The node only needs **`posed_joints`** and **`global_rot_mats`**, in SOMA77 joint order, to
-rebuild the skeleton. Any compatible NPZ works regardless of how it was produced (Kimodo CLI,
-another script, …): set **NPZ Path** to it and the node rebuilds that clip frame by frame.
-**Host Output Dir** / **Download Dir** are only used by **Generate** to place or fetch the file —
-when you set **NPZ Path** manually they aren't involved.
+The node only needs **`posed_joints`** and **`global_rot_mats`** (SOMA77 joint order) to
+rebuild the skeleton. Any compatible NPZ works regardless of how it was produced — set
+**NPZ Path** to it. **Download Dir** is only used by **Generate**.
 
 ### Caching
 
-The server caches results by an MD5 of `prompt + duration + model`, using that hash as the output filename (e.g. `a872d0b….npz`) with a sibling `.json` metadata file (prompt, duration, model, frame count, timestamp). Pressing **Generate** with parameters that match an existing clip returns it instantly — the **Status** field shows `Done (cached)` and no inference runs.
-
-To force a fresh run (e.g. for a `SEED` model variant, or to get a different take), enable **Force Regenerate**. To clear the cache, delete the `.npz`/`.json` files from your **Host Output Dir**.
+The server caches results by an MD5 of `prompt + duration + model`. Re-running with
+identical settings returns instantly (Status shows `Done (cached)`); enable **Force
+Regenerate** to bypass it.
 
 ### Prerequisites
 
-The following Docker services must be running before pressing **Generate**:
+A running `kimodo_server`. From the kimodo dir (see [Setup Guide](../docs/setup.md)):
 
 ```bash
-# Inside the kimodo/ directory
-docker compose -f docker-compose.hybrid.yaml up text-encoder -d  # wait until healthy
-docker compose -f docker-compose.hybrid.yaml up api -d
+docker compose -f docker-compose.bridge.yaml up text-encoder -d   # wait until healthy
+MOCK_MODE=0 docker compose -f docker-compose.bridge.yaml up api -d
 ```
 
----
-
-## kimodo_motion_remote.hda
-
-**Type:** `Sop/kimodo_motion_remote`
-
-A second node for the **resident-model** deployment, where the server runs on a
-powerful (often remote) GPU box. It is identical to `kimodo_motion` — same prompt,
-duration, model, outputs and skeleton — with one difference: a remote Houdini
-cannot read the server's filesystem, so instead of rewriting a mounted host path
-it **downloads the finished NPZ over HTTP**.
-
-| | `kimodo_motion` | `kimodo_motion_remote` |
-|--------|-----------------|------------------------|
-| Server | local subprocess per request (`docker-compose.hybrid.yaml`) | resident model, preloaded (`docker-compose.resident.yaml`) |
-| NPZ transport | volume mount + path rewrite | HTTP download |
-| Transport parameter | **Host Output Dir** | **Download Dir** — local folder for downloaded NPZ (default `$HIP/kimodo_cache`) |
-
-The server preloads the model at startup (`INFERENCE_MODE=resident`), so generations
-skip the per-request reload. Trade-off: the model stays resident in VRAM, and a job
-already running cannot be hard-cancelled (Cancel only stops a queued job or discards
-the result). Start the resident server with:
-
-```bash
-docker compose -f docker-compose.resident.yaml up text-encoder -d  # wait until healthy
-docker compose -f docker-compose.resident.yaml up api -d
-```
-
-Set the node's **API Server URL** to the box running the resident server.
-
-The resident server loads the model from the local HuggingFace cache at startup and
-skips the network (`HF_HUB_OFFLINE=1`), so a stalling HF download can't hang startup.
-The weights must already be cached — populate them once via a hybrid-mode run or
-`huggingface-cli download`, or start with `HF_HUB_OFFLINE=0` for a one-time download.
+The model is preloaded from the local HuggingFace cache (offline), so the weights must
+be cached first (`huggingface-cli download nvidia/Kimodo-SOMA-RP-v1.1`). It then stays
+resident in VRAM while the api container runs — stop it to free VRAM.
 
 ---
 
 ## Rebuilding the HDA
 
-If you need to regenerate the HDA (e.g. after editing the cook scripts embedded in `scripts/create_hda.py`):
+If you edit the cook scripts or skinning, regenerate the HDA:
 
 ```bash
-# 1. Rebuild the packed HDA at the repo root
-hython scripts/create_hda.py "<npz_default>" "<host_output_dir>"
+# 1. Build the embedded skin geometry (mesh + capture, A-pose skeleton)
+hython scripts/build_skin.py
 
-# 2. Add the help card and save the unpacked HDA to hda/
+# 2. Rebuild the packed HDA at the repo root (embeds the skin sections)
+hython scripts/create_hda.py
+
+# 3. Add the help card and save the unpacked HDA to hda/
 hython scripts/_add_help.py
 ```
 
@@ -150,21 +110,18 @@ hython scripts/_add_help.py
 
 ### Option A — Houdini Package (recommended)
 
-Copy the included package file to your Houdini packages directory:
+Copy the package file to your Houdini packages directory, then edit
+`KIMODO_BRIDGE_ROOT` to the absolute path of this repo:
 
 ```bash
 # Windows
 copy kimodo-houdini-bridge.json %HOUDINI_USER_PREF_DIR%\packages\
-
 # Linux / macOS
 cp kimodo-houdini-bridge.json ~/houdiniXX.Y/packages/
 ```
 
-Edit `kimodo-houdini-bridge.json` to set `KIMODO_BRIDGE_ROOT` to the absolute
-path of this repo. Restart Houdini — the `kimodo_motion` SOP will appear
-in the Tab menu under **Kimodo**.
+Restart Houdini — the `kimodo_motion` SOP appears in the Tab menu under **Kimodo**.
 
 ### Option B — Manual install
 
-In Houdini: **Assets → Install Asset Library…** → select this directory
-(`hda/kimodo_motion.hda/`).
+In Houdini: **Assets → Install Asset Library…** → select `hda/kimodo_motion.hda/`.

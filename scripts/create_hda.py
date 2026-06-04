@@ -2,7 +2,7 @@
 Create kimodo_motion.hda via hython (no GUI needed).
 
 Usage:
-    hython scripts/create_hda.py [npz_default] [host_output_default]
+    hython scripts/create_hda.py [npz_default]
 
 Output: kimodo_motion.hda in the repo root.
 """
@@ -12,11 +12,10 @@ import hou
 
 _HERE     = os.path.dirname(os.path.abspath(__file__))
 _REPO     = os.path.dirname(_HERE)
-_HDA_PATH        = os.path.join(_REPO, "kimodo_motion.hda")
-_HDA_REMOTE_PATH = os.path.join(_REPO, "kimodo_motion_remote.hda")
+_HDA_PATH = os.path.join(_REPO, "kimodo_motion.hda")
 
 # Embedded geometry built by scripts/build_skin.py (run it first). When present,
-# the remote HDA gains the A-pose skeleton (output1) and skin mesh (output2).
+# the HDA gains the A-pose skeleton (output1) and skin mesh (output2).
 _SKIN_BGEO  = os.path.join(_REPO, "skin.bgeo.sc")
 _APOSE_BGEO = os.path.join(_REPO, "apose.bgeo.sc")
 
@@ -29,8 +28,7 @@ def _skin_sections():
         }
     return None
 
-_NPZ_DEFAULT        = sys.argv[1] if len(sys.argv) > 1 else ""
-_HOST_OUTPUT_DEFAULT = sys.argv[2] if len(sys.argv) > 2 else ""
+_NPZ_DEFAULT = sys.argv[1] if len(sys.argv) > 1 else ""
 
 from _soma_tpose import TPOSE_ROTS
 _TPOSE_SRC = "TPOSE_ROTS = %r\n" % (TPOSE_ROTS,)
@@ -134,98 +132,6 @@ _cook()
 """
 
 _GENERATE_CB = r"""
-import threading, time, requests, hou
-
-node        = kwargs["node"]
-url         = node.parm("server_url").eval().rstrip("/")
-host_output = node.parm("host_output_dir").eval().rstrip("/")
-
-try:
-    resp = requests.post(
-        f"{url}/generate",
-        json={
-            "prompt":   node.parm("prompt").eval(),
-            "duration": node.parm("duration").eval(),
-            "model":    node.parm("model").evalAsString(),
-            "force":    bool(node.parm("force").eval()),
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-except Exception as e:
-    hou.ui.displayMessage(str(e), severity=hou.severityType.Error, title="Kimodo")
-    node.parm("status").set(f"Error: {e}")
-else:
-    job_id = resp.json()["job_id"]
-    node.parm("job_id").set(job_id)
-    node.parm("status").set(f"Queued ({job_id[:8]}...)")
-
-    def _poll():
-        # HOM/UI calls are not thread-safe: marshal them to the main thread.
-        import hdefereval
-        def _set(parm, val):
-            hdefereval.executeInMainThreadWithResult(lambda: node.parm(parm).set(val))
-        def _msg(text, severity=None):
-            if severity is None:
-                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, title="Kimodo"))
-            else:
-                hdefereval.executeDeferred(lambda: hou.ui.displayMessage(text, severity=severity, title="Kimodo"))
-        fails = 0
-        while True:
-            time.sleep(5)
-            # stop if a newer Generate has replaced this job
-            if hdefereval.executeInMainThreadWithResult(lambda: node.parm("job_id").eval()) != job_id:
-                break
-            try:
-                r = requests.get(f"{url}/jobs/{job_id}", timeout=10)
-                if r.status_code == 404:
-                    _set("status", "Job lost (server restarted?)")
-                    _set("job_id", "")
-                    break
-                r.raise_for_status()
-                data = r.json()
-                fails = 0
-            except Exception as e:
-                fails += 1
-                _set("status", f"Poll error ({fails}/3): {e}")
-                if fails >= 3:
-                    break
-                continue
-            status  = data["status"]
-            elapsed = data.get("elapsed")
-            elapsed_str = f" ({int(elapsed)}s)" if elapsed else ""
-            if status == "done":
-                npz = data["npz_path"].replace("/workspace/output", host_output)
-                frames, joints = data["frames"], data["joints"]
-                done_label = f"Done{elapsed_str}" + (" (cached)" if data.get("cached") else "")
-                def _finish():
-                    node.parm("status").set(done_label)
-                    node.parm("npz_path").set(npz)
-                    node.parm("job_id").set("")
-                    node.cook(force=True)
-                hdefereval.executeInMainThreadWithResult(_finish)
-                _msg(f"Generated {frames} frames ({joints} joints){elapsed_str}.")
-                break
-            elif status in ("failed", "cancelled"):
-                err = data.get("error")
-                _set("status", f"{status.capitalize()}: {err[:60]}" if err else status.capitalize())
-                if status == "failed":
-                    _msg(f"Generation failed:\n{err}", severity=hou.severityType.Error)
-                break
-            else:
-                _set("status", f"Running...{elapsed_str}")
-
-    threading.Thread(target=_poll, daemon=True).start()
-    hou.ui.displayMessage(
-        "Generation started in background.\nHoudini will update automatically when done.",
-        title="Kimodo",
-    )
-"""
-
-# Remote variant: identical submit + background poll, but the server may be on
-# another machine, so on completion we fetch the NPZ over HTTP into a local
-# cache dir instead of rewriting a host path.
-_GENERATE_CB_REMOTE = r"""
 import threading, time, requests, hou
 
 node         = kwargs["node"]
@@ -450,11 +356,8 @@ node.geometry().loadFromFile(path)
 '''
 
 
-def build_hda(node_name, description, hda_path, generate_cb, fetch_mode, skin_sections=None):
-    """Build one kimodo HDA. The two flavours share everything except the
-    Generate callback and one transport parameter:
-      fetch_mode="local"  -> host_output_dir (volume path rewrite)
-      fetch_mode="remote" -> download_dir   (HTTP download to a local cache)
+def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None):
+    """Build the kimodo_motion HDA.
 
     skin_sections: optional {section_name: bytes}. When given, the HDA gets four
       outputs (0 animated, 1 A-pose rest skeleton, 2 skin mesh, 3 T-pose) with the
@@ -526,18 +429,11 @@ def build_hda(node_name, description, hda_path, generate_cb, fetch_mode, skin_se
         "server_url", "API Server URL", 1,
         default_value=("http://localhost:8001",),
     ))
-    if fetch_mode == "local":
-        ptg.append(hou.StringParmTemplate(
-            "host_output_dir", "Host Output Dir", 1,
-            default_value=(_HOST_OUTPUT_DEFAULT or "",),
-            help="Host-side path mapped to /workspace/output inside Docker.",
-        ))
-    else:
-        ptg.append(hou.StringParmTemplate(
-            "download_dir", "Download Dir", 1,
-            default_value=("$HIP/kimodo_cache",),
-            help="Local folder where generated NPZ files are downloaded from the server.",
-        ))
+    ptg.append(hou.StringParmTemplate(
+        "download_dir", "Download Dir", 1,
+        default_value=("$HIP/kimodo_cache",),
+        help="Local folder where generated NPZ files are downloaded from the server.",
+    ))
     ptg.append(hou.SeparatorParmTemplate("sep_gen"))
     ptg.append(hou.StringParmTemplate(
         "prompt", "Prompt", 1,
@@ -610,8 +506,6 @@ def build_hda(node_name, description, hda_path, generate_cb, fetch_mode, skin_se
     print(f"  parms: {[p.name() for p in hda_def.parmTemplateGroup().parmTemplates()]}")
 
 
-# ── build both HDAs ──────────────────────────────────────────────────────────
+# ── build the HDA ────────────────────────────────────────────────────────────
 build_hda("kimodo_motion", "Kimodo Motion Generator",
-          _HDA_PATH, _GENERATE_CB, "local")
-build_hda("kimodo_motion_remote", "Kimodo Motion Generator (Remote)",
-          _HDA_REMOTE_PATH, _GENERATE_CB_REMOTE, "remote", skin_sections=_skin_sections())
+          _HDA_PATH, _GENERATE_CB, skin_sections=_skin_sections())

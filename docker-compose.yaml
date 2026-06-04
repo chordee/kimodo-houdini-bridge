@@ -1,12 +1,11 @@
-# Resident-model deployment: the Kimodo model is preloaded once at FastAPI
-# startup and inference runs in-process (no per-request subprocess reload).
-# Intended for a powerful (often remote) GPU box where keeping the model
-# resident in VRAM is acceptable. Pair with the kimodo_motion_remote HDA, which
-# fetches the NPZ over HTTP (a remote Houdini cannot read this host's filesystem).
+# Kimodo inference server: the model is preloaded once at FastAPI startup and
+# inference runs in-process. The model stays resident in VRAM while the server
+# runs (stop the api container to free it). The kimodo_motion HDA fetches the
+# NPZ over HTTP, so the server can run on this machine or a remote GPU box.
 #
 # Usage (on the GPU host):
-#   MOCK_MODE=0 docker compose -f docker-compose.resident.yaml up text-encoder -d
-#   MOCK_MODE=0 docker compose -f docker-compose.resident.yaml up api -d
+#   MOCK_MODE=0 docker compose up text-encoder -d   # wait until healthy
+#   MOCK_MODE=0 docker compose up api -d
 services:
   text-encoder:
     image: kimodo:1.0
@@ -39,7 +38,6 @@ services:
     ports:
       - "${KIMODO_PORT:-8001}:${KIMODO_PORT:-8001}"
     environment:
-      - INFERENCE_MODE=resident   # preload the model; serve inference in-process
       - KIMODO_MODEL=${KIMODO_MODEL:-}   # model to preload at startup (blank = kimodo default)
       - MOCK_MODE=${MOCK_MODE:-0}   # 0 = live inference; 1 = serve dev_reference.npz
       - OUTPUT_DIR=/workspace/output

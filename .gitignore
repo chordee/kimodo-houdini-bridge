@@ -11,9 +11,8 @@ __pycache__/
 *.hiplc
 *.hip
 backup/
-# Exclude packed binary HDAs at repo root (only hda/ unpacked format is canonical)
+# Exclude packed binary HDA at repo root (only hda/ unpacked format is canonical)
 /kimodo_motion.hda
-/kimodo_motion_remote.hda
 
 # build_skin.py artifacts at repo root (embedded into the HDA as sections instead).
 # Anchored to root so the copies embedded under hda/ stay tracked.

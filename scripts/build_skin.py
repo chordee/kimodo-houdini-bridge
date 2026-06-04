@@ -20,7 +20,7 @@ import sys
 import numpy as np
 import hou
 
-from _soma_tpose import TPOSE_ROTS
+from _soma77 import TPOSE_ROTS
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO = os.path.dirname(_HERE)

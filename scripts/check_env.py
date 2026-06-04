@@ -3,12 +3,14 @@ Pre-flight environment check for kimodo-houdini-bridge.
 Run with system Python (no venv needed): python scripts/check_env.py
 """
 
+import os
 import shutil
 import socket
 import subprocess
 import sys
 
-REQUIRED_PORTS = [8000, 9550]
+# API port (8001 by default; 8000 is reserved by Docker Desktop on Windows) + text-encoder.
+REQUIRED_PORTS = [int(os.environ.get("KIMODO_PORT", "8001")), 9550]
 RECOMMENDED_RAM_GB = 16
 
 

@@ -10,23 +10,96 @@ import time as _time
 import uuid
 from typing import Optional
 
+import pathlib
+from contextlib import asynccontextmanager
+
 import numpy as np
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 log = logging.getLogger("kimodo_server")
 logging.basicConfig(level=logging.INFO)
 
-app = FastAPI(title="Kimodo API")
-
-OUTPUT_DIR = __import__("pathlib").Path(os.environ.get("OUTPUT_DIR", "/workspace/output"))
+OUTPUT_DIR = pathlib.Path(os.environ.get("OUTPUT_DIR", "/workspace/output"))
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 DEV_REFERENCE = OUTPUT_DIR / "dev_reference.npz"
 MOCK_MODE = os.environ.get("MOCK_MODE", "1") == "1"
 TEXT_ENCODER_URL = os.environ.get("TEXT_ENCODER_URL", "http://text-encoder:9550/")
 
+# subprocess (default, one fresh process per request) | resident (model preloaded in-process)
+INFERENCE_MODE = os.environ.get("INFERENCE_MODE", "subprocess")
+# Model to preload at startup in resident mode; empty falls back to kimodo.DEFAULT_MODEL.
+RESIDENT_MODEL = os.environ.get("KIMODO_MODEL", "")
+
 _jobs: dict[str, dict] = {}
+
+# Resident-mode state: a single-slot model cache and a lock that serialises
+# inference (one GPU → one generation at a time).
+_model = None
+_model_key: Optional[str] = None
+_model_lock = asyncio.Lock()
+
+
+def _ensure_model(name: str):
+    """Load (or reuse) the resident Kimodo model. The cache key is the resolved
+    canonical model name, so aliases (e.g. an empty preload default and the HDA's
+    "Kimodo-SOMA-RP-v1.1") map to the same key and reuse the loaded model instead
+    of reloading. Single slot: a different model replaces the previous one to
+    bound VRAM to one model at a time."""
+    global _model, _model_key
+    import torch
+    from kimodo import load_model
+    from kimodo.model.registry import resolve_model_name
+
+    key = resolve_model_name(name or "", default_family="Kimodo")
+    if _model is not None and _model_key == key:
+        return _model
+    device = "cuda:0" if torch.cuda.is_available() else "cpu"
+    log.info("[RESIDENT] loading model %s on %s ...", key, device)
+    model, resolved = load_model(
+        key, device=device, default_family="Kimodo", return_resolved_name=True
+    )
+    _model, _model_key = model, key
+    log.info("[RESIDENT] model ready: %s", resolved)
+    return model
+
+
+def _infer_resident(req: "GenerateRequest", out_path: pathlib.Path) -> None:
+    """Blocking in-process inference. Mirrors kimodo/scripts/generate.py main()."""
+    from kimodo.exports.motion_io import save_kimodo_npz
+
+    model = _ensure_model(req.model)
+    texts = [req.prompt]
+    num_frames = [int(float(req.duration) * model.fps)]
+    output = model(
+        texts,
+        num_frames,
+        num_denoising_steps=100,
+        num_samples=1,
+        multi_prompt=True,
+        num_transition_frames=5,
+        post_processing=True,
+        return_numpy=True,
+    )
+    n = int(output["posed_joints"].shape[0])
+    single = {
+        k: (v[0] if hasattr(v, "shape") and len(v.shape) > 0 and v.shape[0] == n else v)
+        for k, v in output.items()
+    }
+    save_kimodo_npz(str(out_path), single)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    if INFERENCE_MODE == "resident" and not MOCK_MODE:
+        # Preload now so the first /generate skips the model load.
+        await asyncio.to_thread(_ensure_model, RESIDENT_MODEL)
+    yield
+
+
+app = FastAPI(title="Kimodo API", lifespan=lifespan)
 
 
 class GenerateRequest(BaseModel):
@@ -56,7 +129,24 @@ def _cache_key(prompt: str, duration: float, model: str) -> str:
 
 @app.get("/health")
 def health() -> dict:
-    return {"status": "ok", "mock_mode": MOCK_MODE}
+    return {"status": "ok", "mock_mode": MOCK_MODE, "inference_mode": INFERENCE_MODE}
+
+
+@app.get("/jobs/{job_id}/download")
+def download_job(job_id: str) -> FileResponse:
+    """Serve a finished job's NPZ over HTTP (used by the remote HDA, since a
+    remote Houdini cannot read the server's filesystem via a path rewrite)."""
+    if job_id not in _jobs:
+        raise HTTPException(404, f"Job {job_id} not found.")
+    npz = _jobs[job_id].get("npz_path")
+    if not npz:
+        raise HTTPException(409, f"Job {job_id} has no output (status={_jobs[job_id]['status']}).")
+    path = pathlib.Path(npz).resolve()
+    if not path.is_relative_to(OUTPUT_DIR.resolve()):
+        raise HTTPException(403, "Output path is outside the output directory.")
+    if not path.exists():
+        raise HTTPException(404, "Output file is missing.")
+    return FileResponse(str(path), media_type="application/octet-stream", filename=path.name)
 
 
 @app.post("/generate", status_code=202)
@@ -134,35 +224,50 @@ async def _run_job(job_id: str, req: GenerateRequest) -> None:
                        cached=True, elapsed=round(_time.monotonic() - job["started_at"], 1))
             return
 
-        cmd = [
-            sys.executable, "-m", "kimodo.scripts.generate",
-            req.prompt,
-            "--model", req.model,
-            "--duration", str(req.duration),
-            "--output", str(out_path),
-        ]
-        log.info("[GEN] %s %s", job_id[:8], " ".join(cmd))
+        if INFERENCE_MODE == "resident":
+            # In-process inference, serialised on the single GPU. Cannot be hard-
+            # cancelled mid-run; a cancel marks the job and the result is discarded.
+            async with _model_lock:
+                if job.get("status") == "cancelled":
+                    job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
+                    return
+                log.info("[GEN-resident] %s prompt=%r", job_id[:8], req.prompt)
+                await asyncio.to_thread(_infer_resident, req, out_path)
+            if job.get("status") == "cancelled":  # cancelled while inference ran
+                job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
+                return
+        else:
+            cmd = [
+                sys.executable, "-m", "kimodo.scripts.generate",
+                req.prompt,
+                "--model", req.model,
+                "--duration", str(req.duration),
+                "--output", str(out_path),
+            ]
+            log.info("[GEN] %s %s", job_id[:8], " ".join(cmd))
 
-        env = os.environ.copy()
-        env["TEXT_ENCODER_URL"] = TEXT_ENCODER_URL
+            env = os.environ.copy()
+            env["TEXT_ENCODER_URL"] = TEXT_ENCODER_URL
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=env,
-        )
-        job["proc"] = proc
-        stdout, stderr = await proc.communicate()
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=env,
+            )
+            job["proc"] = proc
+            stdout, stderr = await proc.communicate()
+
+            if job.get("status") == "cancelled":  # cancel terminated the subprocess
+                job["elapsed"] = round(_time.monotonic() - job["started_at"], 1)
+                return
+            if proc.returncode != 0:
+                log.error("[FAIL] %s\n%s", job_id[:8], stderr.decode())
+                job.update(status="failed", error=stderr.decode()[-500:],
+                           elapsed=round(_time.monotonic() - job["started_at"], 1))
+                return
+
         elapsed = round(_time.monotonic() - job["started_at"], 1)
-
-        if job.get("status") == "cancelled":  # cancel terminated the subprocess
-            job["elapsed"] = elapsed
-            return
-        if proc.returncode != 0:
-            log.error("[FAIL] %s\n%s", job_id[:8], stderr.decode())
-            job.update(status="failed", error=stderr.decode()[-500:], elapsed=elapsed)
-            return
         if not out_path.exists():
             job.update(status="failed", error="Output file not found after inference.", elapsed=elapsed)
             return

@@ -1,4 +1,4 @@
-= Kimodo Motion Generator =
+= Kimodo Motion Generator (Remote) =
 
 #type: node
 #context: sop
@@ -12,6 +12,11 @@ outputting a 77-joint SOMA skeleton compatible with Houdini KineFX.
 The Kimodo Motion Generator node connects to a running
 [Kimodo|https://github.com/nv-tlabs/kimodo] inference server and
 generates skeleton animation from a natural language description.
+
+This is the remote/resident variant: it targets a `kimodo_server` running
+in resident mode (model preloaded — see docker-compose.resident.yaml) and
+downloads the finished NPZ over HTTP, so the server can live on another
+machine.
 
 Press __Generate__ to send a POST request to the API server.
 The resulting NPZ file is loaded and the skeleton is rebuilt on every
@@ -34,9 +39,9 @@ Server URL:
     URL of the running `kimodo_server` FastAPI service.
     Default: `http://localhost:8001`
 
-Host Output Dir:
-    The host-side directory mapped to `/workspace/output` inside Docker.
-    Must contain `dev_reference.npz` when running in mock mode.
+Download Dir:
+    Local folder where finished NPZ files are downloaded from the server
+    over HTTP. Defaults to `$HIP/kimodo_cache`.
 
 Prompt:
     Natural language description of the desired motion.
@@ -54,13 +59,13 @@ Force Regenerate:
 
 Generate:
     Submits the prompt to `<Server URL>/generate` and returns immediately
-    with a job ID. Inference runs on the server while a background thread
-    polls for progress, so Houdini stays responsive. When the job finishes,
-    __NPZ Path__ is updated and the node recooks automatically.
+    with a job ID. A background thread polls for progress, so Houdini stays
+    responsive. When the job finishes the NPZ is downloaded to __Download
+    Dir__, __NPZ Path__ is set to the local copy, and the node recooks.
 
 Cancel:
-    Cancels the running job (terminates the server-side inference process).
-    Only meaningful while a job is in progress.
+    Cancels the job. On a resident server an already-running generation
+    cannot be interrupted — Cancel stops a queued job or discards the result.
 
 Status:
     Read-only. Shows the live job state: Queued, Running... (Ns) with elapsed

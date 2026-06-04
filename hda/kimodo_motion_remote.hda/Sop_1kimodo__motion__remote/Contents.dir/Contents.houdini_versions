@@ -1,0 +1,10 @@
+{
+	"values":["21.0.700"
+	],
+	"indexes":{
+		"hdaroot/output0.userdata":0,
+		"hdaroot/output1.userdata":0,
+		"hdaroot/rest_sop.userdata":0,
+		"hdaroot/gen_sop.userdata":0
+	}
+}

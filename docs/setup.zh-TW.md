@@ -2,11 +2,29 @@
 
 [English](setup.md)
 
-本指南涵蓋完整的環境設定流程，從 Docker 部署到 Houdini HDA。
+本專案支援兩種部署方式。先看 roadmap,做完**共用安裝**,再**只**照你需要的那條路走。
 
-## Step 0：環境驗證
+## 部署 roadmap
 
-複製此 repo 並執行前置檢查：
+| | Path A — 本機(Hybrid) | Path B — 遠端／常駐(Resident) |
+|---|---|---|
+| 使用時機 | 預設 — 最簡單,生成之間釋放 VRAM | 常迭代且 VRAM 有餘,或 GPU 在另一台 |
+| Compose 檔 | `docker-compose.hybrid.yaml` | `docker-compose.resident.yaml` |
+| 推論 | 每請求開一個子行程(每次重載模型) | 模型預載一次,in-process 服務 |
+| Houdini 節點 | `kimodo_motion` | `kimodo_motion_remote` |
+| NPZ → Houdini | 掛載 volume(路徑替換) | HTTP 下載 |
+| 額外前提 | — | 模型權重需先快取(離線載入) |
+
+兩條路共用同一個 Docker image、`kimodo_server.py`、HDA 與骨架輸出 ——
+差別只在於你起哪個 compose、用哪個節點。
+
+---
+
+# 共用安裝(兩條路都要)
+
+## 1. 環境檢查
+
+clone 本 repo 並執行前置檢查:
 
 ```bash
 git clone https://github.com/<your-org>/kimodo-houdini-bridge.git
@@ -14,116 +32,48 @@ cd kimodo-houdini-bridge
 python scripts/check_env.py
 ```
 
-此腳本會檢查 Docker 是否可用、GPU pass-through、系統 RAM 以及埠號是否空閒。繼續之前請先修正所有 `FAIL` 項目。
+腳本會檢查 Docker、GPU pass-through、系統記憶體與埠號可用性。有 `FAIL` 先修掉再繼續。
 
-一切就緒時的預期輸出：
-
-```
-[PASS] Docker CLI found
-[PASS] Docker daemon running
-[PASS] Docker GPU pass-through (nvidia-smi visible in container)
-[PASS] System RAM >= 16 GB — XX.X GB detected
-[PASS] Port 8000 available
-[PASS] Port 9550 available
-
-Result: 6/6 checks passed. Ready for Phase 1.
-```
-
----
-
-## Step 1：複製 Kimodo 並建置 Docker 映像
+## 2. Clone Kimodo 並建置 Docker image
 
 ```bash
-# 複製 Kimodo（例如放在此 repo 旁邊）
+# Clone Kimodo（例如放在本 repo 旁邊）
 git clone https://github.com/nv-tlabs/kimodo.git
 cd kimodo
 
-# 複製 Kimodo 專用的 Viser fork —— 建置前必須先完成
+# Clone Kimodo 專用的 Viser fork —— 建置前必須先 clone
 git clone https://github.com/nv-tlabs/kimodo-viser.git
 ```
 
-**僅限 Windows：** Git 可能會將 shell 腳本的換行符號轉成 CRLF，導致 Docker entrypoint 無法執行。建置前請先修正：
+**僅 Windows：** Git 可能把 shell 腳本換行轉成 CRLF,會弄壞 Docker entrypoint,建置前先修:
 
 ```bash
 sed -i 's/\r//' kimodo/scripts/docker-entrypoint.sh
 ```
 
 ```bash
-# 建置映像 —— 使用 Kimodo 官方的 CUDA Dockerfile
-# 首次建置會下載 base image（約 10 GB）並安裝所有相依套件
+# 建置 image —— 使用 Kimodo 官方的 CUDA Dockerfile。
+# 首次建置會下載 base image（約 10 GB）並安裝所有相依套件。
 docker build -t kimodo:1.0 .
 ```
 
-> Base image 為 `nvcr.io/nvidia/pytorch:24.10-py3`，需要快速的網路連線或 NGC 存取權限。
+> Base image 是 `nvcr.io/nvidia/pytorch:24.10-py3`,需要快速網路或 NGC 存取權限。
 
----
+## 3. HuggingFace token
 
-## Step 2：啟動服務並生成一段動作片段
-
-將此 repo 的 `docker-compose.hybrid.yaml` 複製到 `kimodo/` 目錄，並建立輸出資料夾：
+匯出 token,讓容器能下載模型權重:
 
 ```bash
-cp ../kimodo-houdini-bridge/docker-compose.hybrid.yaml .
-mkdir -p output
-```
-
-匯出 HuggingFace token，讓容器能下載模型權重：
-
-```bash
-# 選項 A：若已執行過 `hf auth login`，從快取讀取
+# 方式 A：若已執行過 `hf auth login`，直接從快取讀
 export HUGGING_FACE_HUB_TOKEN=$(cat ~/.cache/huggingface/token)
 
-# 選項 B：直接貼上你的 token
+# 方式 B：直接貼上 token
 export HUGGING_FACE_HUB_TOKEN=hf_...
 ```
 
-啟動 text-encoder 服務（在 CPU 上執行，多次生成之間維持運作）：
+## 4. Houdini Python 套件
 
-```bash
-docker compose -f docker-compose.hybrid.yaml up text-encoder -d
-
-# 等待狀態顯示 "healthy"
-# 首次啟動會下載 LLM2Vec text encoder 模型並載入 CPU —— 約需 5-10 分鐘
-docker compose -f docker-compose.hybrid.yaml ps
-```
-
-執行一次生成（擴散在 GPU 上執行）：
-
-```bash
-docker compose -f docker-compose.hybrid.yaml run --rm demo
-```
-
-驗證輸出：
-
-```bash
-ls -lh output/test.npz
-```
-
-```python
-# 在 Houdini Python Shell 或任何 Python 環境中
-import numpy as np
-data = np.load("output/test.npz")
-print(list(data.keys()))
-# ['local_rot_mats', 'global_rot_mats', 'posed_joints', 'root_positions',
-#  'smooth_root_pos', 'foot_contacts', 'global_root_heading']
-
-joints = data["posed_joints"]
-print(joints.shape)       # (T, 77, 3)  — T = 幀數, 77 = SOMA 關節
-print(data["local_rot_mats"].shape)   # (T, 77, 3, 3)
-print(data["foot_contacts"].shape)    # (T, 6) bool — SOMA 骨架的 6 個接觸點
-```
-
-另存一份作為開發用的參考檔：
-
-```bash
-cp output/test.npz output/dev_reference.npz
-```
-
----
-
-## Step 3：Houdini Python 環境設定
-
-將所需套件安裝到 Houdini 內建的 Python：
+把 HDA 需要的套件裝進 Houdini 內建的 Python:
 
 ```bash
 # Linux / macOS
@@ -133,99 +83,117 @@ $HFS/bin/hython -m pip install requests scipy numpy
 "C:\Program Files\Side Effects Software\Houdini 21.0.xxx\bin\hython.exe" -m pip install requests scipy numpy
 ```
 
-在 Houdini Python Shell 中驗證：
+## 5. 安裝 HDA
 
-```python
-import numpy as np
-import requests
-import scipy
-print(np.__version__, requests.__version__, scipy.__version__)
-```
+repo 已在 `hda/` 底下附上**兩個建好的 HDA**,直接在 Houdini 安裝即可
+(**Assets → Install Asset Library…**,或用 package 檔)。完整選項見
+[hda/README.md](../hda/README.md)。你只需要對應你那條路的節點:
+`kimodo_motion`(Path A)或 `kimodo_motion_remote`(Path B)。
 
-三者都應印出版本字串且無 import 錯誤。
+> 若你修改了 cook script,可重建兩個 HDA:
+> `hython scripts/create_hda.py "<npz_default>" "<host_output_default>"` 再
+> `hython scripts/_add_help.py` —— 見 [hda/README.md](../hda/README.md)。
 
 ---
 
-## Step 4：啟動 API 伺服器
+# Path A — 本機(Hybrid)
 
-將此 repo 的 `kimodo_server.py` 複製到 `kimodo/` 目錄：
+Houdini 與 GPU 在同一台;節點從掛載的 volume 讀 NPZ。
+
+## A1. 把 server 部署進 kimodo 目錄
 
 ```bash
-cp ../kimodo-houdini-bridge/kimodo_server.py .
+cd /path/to/kimodo
+cp /path/to/kimodo-houdini-bridge/docker-compose.hybrid.yaml .
+cp /path/to/kimodo-houdini-bridge/kimodo_server.py .
+mkdir -p output
 ```
 
-以 **mock mode** 啟動 API 服務（不執行推論，直接回傳 `dev_reference.npz` —— 適合 HDA 開發階段）：
+## A2. 啟動 text-encoder(CPU,生成之間保持執行)
 
 ```bash
+docker compose -f docker-compose.hybrid.yaml up text-encoder -d
+# 首次啟動會下載 text encoder 並在 CPU 載入 —— 約 5-10 分鐘。
+docker compose -f docker-compose.hybrid.yaml ps   # 等到 "healthy"
+```
+
+## A3. 產生一個參考片段(啟用 mock 模式 + 快取權重)
+
+```bash
+docker compose -f docker-compose.hybrid.yaml run --rm demo
+cp output/test.npz output/dev_reference.npz
+```
+
+這會在 GPU 上跑一次真實生成,順便下載並快取模型權重。
+
+## A4. 啟動 API server
+
+```bash
+# Mock 模式（回傳 dev_reference.npz、不跑推論 —— 適合開發 HDA）
 docker compose -f docker-compose.hybrid.yaml up api -d
-```
+curl http://localhost:8001/health     # {"status":"ok","mock_mode":true,"inference_mode":"subprocess"}
 
-驗證：
-
-```bash
-curl http://localhost:8001/health
-# {"status":"ok","mock_mode":true}
-
-curl -X POST http://localhost:8001/generate \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "a person walks forward", "duration": 3.0}'
-# {"npz_path":"/workspace/output/dev_reference.npz","prompt":"...","frames":90,"joints":77}
-```
-
-> **埠號說明：** 在 Windows 上，埠號 8000 由 Docker Desktop 佔用，因此 API 預設使用 **8001**。
-> 若要使用其他埠號：`KIMODO_PORT=8002 docker compose -f docker-compose.hybrid.yaml up api -d`
-> 若更改了埠號，記得同步修改 HDA 的 **API Server URL** 參數（例如 `http://localhost:8002`）。
-
-要啟用**即時推論（live inference）**，請先確認 `text-encoder` 已 healthy，再以 `MOCK_MODE=0` 重啟 api 服務：
-
-```bash
+# Live 模式（每次跑完整擴散；text-encoder 必須 healthy）
 docker compose -f docker-compose.hybrid.yaml stop api
 MOCK_MODE=0 docker compose -f docker-compose.hybrid.yaml up api -d
 ```
 
-在 live mode 下，每次 `/generate` 呼叫都會在 GPU 上執行完整的 Kimodo 擴散運算（依長度約 30 秒至 3 分鐘）。首次呼叫還會從 HuggingFace 下載模型權重（首次約 10 分鐘）。
+> **埠號注意：** Windows 上 8000 埠被 Docker Desktop 佔用,API 預設用 **8001**。
+> 要換埠:`KIMODO_PORT=8002 docker compose -f docker-compose.hybrid.yaml up api -d`,
+> 並把節點的 **API Server URL** 改成對應埠號。
+
+## A5. 在 Houdini 生成
+
+在 SOP 網路放一個 **`kimodo_motion`** 節點。把 **API Server URL** 設成
+`http://localhost:8001`、**Host Output Dir** 設成你的 `kimodo/output/` 路徑,按 **Generate**。
 
 ---
 
-## Step 5：從 Houdini 連線（Python Shell）
+# Path B — 遠端／常駐(Resident)
 
-```python
-import requests
+模型預載一次以加速迭代;節點透過 HTTP 取回 NPZ,所以伺服器可在**本機或另一台 GPU 機器**。
+B1–B3 在有 GPU 的那台執行;若與 Houdini 同一台,節點的 server URL 設 `localhost` 即可。
 
-resp = requests.post(
-    "http://localhost:8001/generate",
-    json={"prompt": "a person walks forward", "duration": 3.0},
-    timeout=30,
-)
-resp.raise_for_status()
-data = resp.json()
-print(data["npz_path"])  # /workspace/output/dev_reference.npz
-print(data["frames"])    # 90
-print(data["joints"])    # 77
-```
+## B1. 預先快取模型權重(一次性)
 
-載入 NPZ（Docker 的 `/workspace/output/` 對應主機端的 `./output/`）：
+常駐 server 在啟動時從本機 HuggingFace 快取載入、略過網路(`HF_HUB_OFFLINE=1`),
+所以權重必須先在這台快取好。兩種方式擇一:
 
-```python
-import numpy as np
-
-host_path = data["npz_path"].replace("/workspace/output", "/path/to/kimodo/output")
-motion = np.load(host_path)
-print(motion["posed_joints"].shape)  # (90, 77, 3)
-```
-
----
-
-## Step 6：建置並安裝 Houdini HDA
-
-使用 hython 生成 HDA 檔案（不需開啟 Houdini GUI）：
+- 你已在這台跑過生成(Path A 會把權重留在快取),或
+- 直接下載:
 
 ```bash
-# 在 kimodo-houdini-bridge repo 根目錄下執行
-hython scripts/create_hda.py "/path/to/kimodo/output/dev_reference.npz" "/path/to/kimodo/output"
-# 輸出：kimodo_motion.hda
+huggingface-cli download nvidia/Kimodo-SOMA-RP-v1.1
 ```
 
-在 Houdini 中安裝 —— 完整的 HDA 文件與安裝選項請見 [hda/README.zh-TW.md](../hda/README.zh-TW.md)。
+(若節點會選別的模型,一併下載,例如 `nvidia/Kimodo-SOMA-SEED-v1.1`。)
 
-在任一 SOP 網路中放置 **kimodo_motion** 節點，將 **Host Output Dir** 設為你的 `kimodo/output/` 目錄路徑，再按下 **Generate**。
+## B2. 把 server 部署進 kimodo 目錄
+
+```bash
+cd /path/to/kimodo
+cp /path/to/kimodo-houdini-bridge/docker-compose.resident.yaml .
+cp /path/to/kimodo-houdini-bridge/kimodo_server.py .
+mkdir -p output
+export HUGGING_FACE_HUB_TOKEN=$(cat ~/.cache/huggingface/token)
+```
+
+## B3. 啟動 text-encoder + resident API
+
+```bash
+docker compose -f docker-compose.resident.yaml up text-encoder -d   # 等到 "healthy"
+docker compose -f docker-compose.resident.yaml up api -d
+```
+
+api 會在啟動時預載模型(看 `docker logs kimodo-api`,出現
+`[RESIDENT] model ready` → `Application startup complete`)。接著:
+
+```bash
+curl http://<gpu-box>:8001/health    # {"status":"ok","mock_mode":false,"inference_mode":"resident"}
+```
+
+## B4. 在 Houdini 生成
+
+放一個 **`kimodo_motion_remote`** 節點。把 **API Server URL** 設成
+`http://<gpu-box>:8001`、**Download Dir** 維持 `$HIP/kimodo_cache`(或任意本機資料夾),
+按 **Generate** —— 完成的 NPZ 會自動下載到該處。

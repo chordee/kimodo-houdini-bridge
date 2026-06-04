@@ -34,6 +34,7 @@ The bridge provides:
 - AI-assisted animation starting point — use the generated skeleton as a base pose or keyframe reference
 - Research and pipeline testing — evaluate Kimodo output inside a real DCC environment
 - Pre-visualization — batch generate rough motion clips for storyboard or layout work
+- Standalone SOMA loader — even without the inference server (so no generation), the `kimodo_motion` HDA reads any compatible SOMA77 NPZ produced elsewhere and reconstructs the skeleton motion as KineFX geometry in Houdini; just point **NPZ Path** at the file
 
 ---
 

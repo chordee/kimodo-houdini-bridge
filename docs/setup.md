@@ -18,7 +18,7 @@ result over HTTP, so the server can run on this machine or a separate GPU box.
   weights. Accept the model's terms on its HuggingFace page first, then create a token.
 - **Houdini 20.5+**.
 
-> ⚠️ **VRAM stays occupied while the server runs.** The `api` container preloads the
+> **VRAM stays occupied while the server runs.** The `api` container preloads the
 > model and keeps it resident in VRAM (~3–4 GB) for its whole lifetime — it is **not**
 > freed between generations. Stop it when you're done generating to reclaim the GPU
 > (e.g. before a heavy Houdini / Karma render):

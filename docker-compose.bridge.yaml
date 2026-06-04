@@ -24,7 +24,10 @@ services:
       - HF_HOME=/workspace/.cache/huggingface
       - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN}
     healthcheck:
-      test: ["CMD", "bash", "-lc", "curl -fsS http://localhost:9550/ > /dev/null"]
+      # Hit /config (the gradio config endpoint kimodo's TextEncoderAPI fetches on
+      # connect), not just / — otherwise "healthy" can race ahead of gradio being
+      # ready and the api's model preload times out connecting to the encoder.
+      test: ["CMD", "bash", "-lc", "curl -fsS http://localhost:9550/config > /dev/null"]
       interval: 5s
       timeout: 3s
       retries: 120  # CPU model loading can take up to 10 minutes on first run

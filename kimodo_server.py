@@ -66,9 +66,14 @@ def _infer_resident(req: "GenerateRequest", out_path: pathlib.Path) -> None:
     """Blocking in-process inference. Mirrors kimodo/scripts/generate.py main()."""
     from kimodo.exports.motion_io import save_kimodo_npz
 
+    from kimodo.constraints import load_constraints_lst
+
     model = _ensure_model(req.model)
     texts = [req.prompt]
     num_frames = [int(float(req.duration) * model.fps)]
+    constraint_lst = (
+        load_constraints_lst(req.constraints, model.skeleton) if req.constraints else []
+    )
     output = model(
         texts,
         num_frames,
@@ -77,6 +82,7 @@ def _infer_resident(req: "GenerateRequest", out_path: pathlib.Path) -> None:
         multi_prompt=True,
         num_transition_frames=5,
         post_processing=True,
+        constraint_lst=constraint_lst,
         return_numpy=True,
     )
     n = int(output["posed_joints"].shape[0])
@@ -104,6 +110,7 @@ class GenerateRequest(BaseModel):
     model: str = "soma-rp"
     num_samples: int = 1
     force: bool = False          # bypass the cache and re-run inference
+    constraints: Optional[list] = None   # Kimodo constraint dicts (type/frame_indices/...)
 
 
 class JobStatus(BaseModel):
@@ -118,8 +125,11 @@ class JobStatus(BaseModel):
     cached: Optional[bool] = None    # True if served from a cached NPZ
 
 
-def _cache_key(prompt: str, duration: float, model: str) -> str:
-    payload = json.dumps({"prompt": prompt, "duration": duration, "model": model}, sort_keys=True)
+def _cache_key(prompt: str, duration: float, model: str, constraints=None) -> str:
+    payload = json.dumps(
+        {"prompt": prompt, "duration": duration, "model": model, "constraints": constraints},
+        sort_keys=True,
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -209,7 +219,7 @@ async def _run_job(job_id: str, req: GenerateRequest) -> None:
                        elapsed=round(_time.monotonic() - job["started_at"], 1))
             return
 
-        out_path = OUTPUT_DIR / f"{_cache_key(req.prompt, req.duration, req.model)}.npz"
+        out_path = OUTPUT_DIR / f"{_cache_key(req.prompt, req.duration, req.model, req.constraints)}.npz"
 
         if not req.force and out_path.exists():
             data = np.load(out_path)

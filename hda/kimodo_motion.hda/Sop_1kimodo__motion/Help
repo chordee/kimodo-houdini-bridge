@@ -49,6 +49,28 @@ Model:
 Force Regenerate:
     Bypass the server cache and re-run inference even if a matching clip exists.
 
+Constraints File / Constraints JSON:
+    Optional [Kimodo constraints|https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html]
+    that steer the generated motion to hit spatial targets — a root 2D path or
+    waypoints, full-body keyframes, or end-effector (hand/foot) targets. Provide a
+    list of constraint dicts: either point __Constraints File__ at a `*.json`
+    (e.g. one exported from the Kimodo demo), or paste it into __Constraints JSON__
+    (which takes precedence). Targets are in Kimodo's space: Y-up, metres, +Z
+    forward, with the root at XZ = (0, 0) on frame 0 — the same world space this
+    node outputs. Simplest type, a `root2d` waypoint set:
+    {{{
+    [{"type": "root2d", "frame_indices": [0, 90], "smooth_root_2d": [[0,0],[2,1]]}]
+    }}}
+    Leave both empty for unconstrained generation.
+
+:input 0 — Root Path / Waypoints (optional):
+    Connect geometry to build a `root2d` constraint without writing JSON. Each
+    point's world XZ becomes a `smooth_root_2d` target (Houdini XZ maps 1:1 to
+    Kimodo's space). Points carrying an integer `frame` point attribute become
+    sparse waypoints at those frames (you control the timing); otherwise the points
+    (in order — e.g. a resampled polyline) are spread evenly across the clip as a
+    denser path. The result is appended to any JSON constraints above.
+
 Generate:
     Submits the prompt to `<API Server URL>/generate` and returns immediately with
     a job ID. A background thread polls for progress, so Houdini stays responsive.

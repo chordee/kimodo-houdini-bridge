@@ -37,6 +37,12 @@ input 0 = **Rest Geometry** (output 2), input 1 = **Capture Pose** (output 1),
 input 2 = **Animated Pose** (output 0). The mesh follows the animation and returns to
 the bind pose at rest. (output 0 also drives a **Rig Pose / Bone Deform** workflow directly.)
 
+### Input (optional)
+
+The node has one **optional input**, *Root Path / Waypoints*. Connect a curve or points
+to author a root-path constraint from geometry instead of JSON — see
+[Constraints](#constraints-optional). Leave it unconnected for normal use.
+
 ### Parameters
 
 | Parameter | Default | Description |
@@ -47,6 +53,8 @@ the bind pose at rest. (output 0 also drives a **Rig Pose / Bone Deform** workfl
 | Duration (s) | `3.0` | Length of the clip in seconds. At 30 fps, 3 s = 90 frames. |
 | Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` conditions on a rest pose; `SEED` uses a fixed seed for reproducibility. |
 | Force Regenerate | `off` | Bypass the server cache and re-run inference even if a matching clip exists. |
+| Constraints File | _(empty)_ | Optional [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html) JSON file (`*.json`). See [Constraints](#constraints-optional). |
+| Constraints JSON | _(empty)_ | Optional inline constraints JSON; takes precedence over Constraints File. |
 | **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. A background thread polls for progress, so Houdini stays responsive. When done, the NPZ is downloaded to **Download Dir**, **NPZ Path** is set, and the node recooks. |
 | **Cancel** | — | Cancels the job. A resident server can't interrupt an already-running generation — Cancel stops a queued job or discards the result. |
 | Status | _(read-only)_ | Live job state: `Queued`, `Running... (Ns)`, `Downloading...`, `Done (Ns)`, `Failed`, `Cancelled`. |
@@ -68,11 +76,45 @@ The node only needs **`posed_joints`** and **`global_rot_mats`** (SOMA77 joint o
 rebuild the skeleton. Any compatible NPZ works regardless of how it was produced — set
 **NPZ Path** to it. **Download Dir** is only used by **Generate**.
 
+### Constraints (optional)
+
+[Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
+steer the generated motion to hit spatial targets: a root 2D path or waypoints,
+full-body keyframes, or end-effector (hand/foot) targets. Supply a JSON **list of
+constraint dicts**, where each dict's `type` field selects the constraint kind.
+
+**Constraints File** and **Constraints JSON** are not constraint types — they are two
+ways to provide that *same* JSON payload: point **Constraints File** at a `*.json`
+(e.g. one exported from the Kimodo demo), or paste the JSON into **Constraints JSON**.
+The inline JSON wins when non-empty; otherwise the file is read. One list can hold
+several constraints of different types. Leave both empty for unconstrained generation.
+(Input geometry, if connected, adds a `root2d` on top — see below.)
+
+Targets use Kimodo's coordinate space: **Y-up, metres, +Z forward, root at XZ = (0, 0)
+on frame 0** — the same world space this node outputs. The simplest type is a `root2d`
+waypoint set (`frame_indices` + `[x, z]` pairs):
+
+```json
+[{"type": "root2d", "frame_indices": [0, 90], "smooth_root_2d": [[0, 0], [2, 1]]}]
+```
+
+Other types (`fullbody`, `left-hand`/`right-hand`/`left-foot`/`right-foot`) also need
+per-joint rotations; author them in the Kimodo demo and export the JSON. Constraints are
+part of the cache key, so a new constraint set triggers a fresh generation.
+
+**Authoring a `root2d` from geometry (input 0):** instead of writing JSON, connect
+geometry to the node's optional input. Each point's world XZ becomes a `smooth_root_2d`
+target (Houdini XZ maps 1:1 to Kimodo's space — you can trace over the node's own output
+trajectory). Points carrying an integer `frame` point attribute become **sparse waypoints**
+at those frames (you control the timing); otherwise the points, in order (e.g. a resampled
+polyline), are spread evenly across the clip as a **denser path**. The geometry-derived
+`root2d` is appended to any JSON constraints above.
+
 ### Caching
 
-The server caches results by a SHA-256 hash of `prompt + duration + model`. Re-running with
-identical settings returns instantly (Status shows `Done (cached)`); enable **Force
-Regenerate** to bypass it.
+The server caches results by a SHA-256 hash of `prompt + duration + model + constraints`.
+Re-running with identical settings returns instantly (Status shows `Done (cached)`); enable
+**Force Regenerate** to bypass it.
 
 ### Prerequisites
 

@@ -35,7 +35,7 @@ The bridge provides:
 - Research and pipeline testing — evaluate Kimodo output inside a real DCC environment
 - Pre-visualization — batch generate rough motion clips for storyboard or layout work
 - Standalone SOMA loader — even without the inference server (so no generation), the `kimodo_motion` HDA reads any compatible SOMA77 NPZ produced elsewhere and reconstructs the skeleton motion as KineFX geometry in Houdini; just point **NPZ Path** at the file
-- Controlled generation — steer the motion with optional [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html) (root 2D path/waypoints, full-body keyframes, hand/foot targets): supply them as JSON on the node, or connect a Houdini curve/points to the node's input to drive a root path directly; see [HDA Documentation](hda/README.md#constraints-optional)
+- Controlled generation — steer the motion with optional [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html) (root 2D path/waypoints, full-body keyframes, hand/foot targets): supply them as JSON, connect a Houdini curve/points to drive a root path, or pose the node's skeleton output and keyframe it to author full-body / end-effector constraints — all on the node; see [HDA Documentation](hda/README.md#constraints-optional)
 
 ---
 

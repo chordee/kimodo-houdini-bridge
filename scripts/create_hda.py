@@ -119,6 +119,7 @@ _cook()
 
 _GENERATE_CB = r"""
 import json, threading, time, requests, hou
+import numpy as np
 
 node         = kwargs["node"]
 url          = node.parm("server_url").eval().rstrip("/")
@@ -162,6 +163,60 @@ try:
                       "frame_indices": [f for f, _ in items],
                       "smooth_root_2d": [c for _, c in items]}
             constraints = (constraints or []) + [root2d]
+
+    # Optional posed-skeleton input (input 1) -> a full-body / end-effector constraint.
+    # Pose the node's own Capture Pose (A-pose) output with KineFX, keyframe it, and wire
+    # it back here. At each listed keyframe we read the posed joints and invert the cook's
+    # forward transform to recover Kimodo's global rotation: the cook stores
+    # transform = (grot @ tp).T, so grot = (transform.T) @ tp.T  (tp = TPOSE_ROTS).
+    # Positions are already Kimodo-global. The server builds the constraint via the
+    # FullBody/EndEffector constructor (same path Kimodo's demo uses).
+    kf = node.parm("pose_keyframes").eval().strip()
+    if len(ins) > 1 and ins[1] is not None and kf:
+        frames = [int(x) for x in kf.replace(",", " ").split()]
+        m = node.type().hdaModule()
+        joints = list(m.SOMA77_JOINTS)
+        tp = np.asarray(m.TPOSE_ROTS, dtype=float).reshape(-1, 3, 3)
+        idx = {n: i for i, n in enumerate(joints)}
+        src = ins[1]
+        pos_kf, rot_kf, sr_kf = [], [], []
+        for f in frames:
+            g = src.geometryAtFrame(f)
+            if g.findPointAttrib("name") is None:
+                raise ValueError("Pose input must be a SOMA77 skeleton with a `name` point attribute.")
+            P = [None] * len(joints)
+            R = [None] * len(joints)
+            for pt in g.points():
+                nm = pt.attribValue("name")
+                if nm not in idx:
+                    continue
+                i = idx[nm]
+                P[i] = [float(v) for v in pt.position()]
+                world = np.array(pt.attribValue("transform"), dtype=float).reshape(3, 3).T
+                R[i] = (world @ tp[i].T).tolist()
+            if any(p is None for p in P):
+                missing = [joints[i] for i, p in enumerate(P) if p is None]
+                raise ValueError("Pose input missing SOMA77 joints: %s" % ", ".join(missing[:5]))
+            pos_kf.append(P)
+            rot_kf.append(R)
+            hips = P[idx["Hips"]]
+            sr_kf.append([hips[0], hips[2]])
+        is_ee = node.parm("pose_type").evalAsString() == "End-Effector"
+        cdict = {"frame_indices": frames,
+                 "global_joints_positions": pos_kf,
+                 "global_joints_rots": rot_kf,
+                 "smooth_root_2d": sr_kf}
+        if is_ee:
+            names = [jn for parm, jn in (("ee_left_hand", "LeftHand"), ("ee_right_hand", "RightHand"),
+                                         ("ee_left_foot", "LeftFoot"), ("ee_right_foot", "RightFoot"))
+                     if node.parm(parm).eval()]
+            if not names:
+                raise ValueError("End-Effector pose constraint: select at least one joint (hand/foot).")
+            cdict["type"] = "ee-global"
+            cdict["joint_names"] = names
+        else:
+            cdict["type"] = "fullbody-global"
+        constraints = (constraints or []) + [cdict]
 
     resp = requests.post(
         f"{url}/generate",
@@ -383,7 +438,7 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
         hda_file_name=hda_path,
         description=description,
         min_num_inputs=0,
-        max_num_inputs=1,   # optional input: geometry -> a root2d constraint (read by Generate)
+        max_num_inputs=2,   # input 0: geometry -> root2d; input 1: posed skeleton -> fullbody/EE
         version="1.0",
     )
     hda_def = hda_node.type().definition()
@@ -443,6 +498,25 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
         help="Optional inline Kimodo constraints JSON (a list of constraint dicts). "
              "Takes precedence over Constraints File.",
     ))
+    ptg.append(hou.SeparatorParmTemplate("sep_pose"))
+    ptg.append(hou.MenuParmTemplate(
+        "pose_type", "Pose Constraint",
+        ("Full-Body", "End-Effector"),
+        default_value=0,
+        help="How to use a posed skeleton wired to input 1: constrain the whole body, "
+             "or only selected end-effectors (hands/feet).",
+    ))
+    pose_ee = {"disablewhen": '{ pose_type != "End-Effector" }'}
+    ptg.append(hou.ToggleParmTemplate("ee_left_hand", "Left Hand", default_value=False, tags=pose_ee))
+    ptg.append(hou.ToggleParmTemplate("ee_right_hand", "Right Hand", default_value=True, tags=pose_ee))
+    ptg.append(hou.ToggleParmTemplate("ee_left_foot", "Left Foot", default_value=False, tags=pose_ee))
+    ptg.append(hou.ToggleParmTemplate("ee_right_foot", "Right Foot", default_value=False, tags=pose_ee))
+    ptg.append(hou.StringParmTemplate(
+        "pose_keyframes", "Pose Keyframes", 1,
+        default_value=("",),
+        help="Frame numbers to sample the input-1 skeleton at, e.g. `0 45 89`. Empty = no "
+             "pose constraint. Pose the node's Capture Pose output and wire it to input 1.",
+    ))
     ptg.append(hou.ButtonParmTemplate(
         "generate", "Generate",
         script_callback=generate_cb,
@@ -487,10 +561,15 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
     labels = (["Animated Pose", "Capture Pose", "Rest Geometry", "T-Pose"]
               if skin_sections else ["Animated Pose", "T-Pose"])
     ds = hda_def.sections()["DialogScript"].contents().splitlines(keepends=True)
-    # name the (optional) input connector
-    ds = ['    inputlabel\t1\t"Root Path / Waypoints (opt)"\n'
-          if line.lstrip().startswith(("inputlabel\t1", "inputlabel 1")) else line
-          for line in ds]
+    # name the (optional) input connectors
+    _inlabels = {"1": "Root Path / Waypoints (opt)", "2": "Pose Keyframes / skeleton (opt)"}
+    def _relabel(line):
+        s = line.lstrip()
+        for n, lbl in _inlabels.items():
+            if s.startswith(("inputlabel\t%s" % n, "inputlabel %s" % n)):
+                return '    inputlabel\t%s\t"%s"\n' % (n, lbl)
+        return line
+    ds = [_relabel(line) for line in ds]
     after = max(i for i, line in enumerate(ds) if line.lstrip().startswith("inputlabel"))
     inject = "".join('    outputlabel\t%d\t"%s"\n' % (i + 1, lbl) for i, lbl in enumerate(labels))
     hda_def.addSection("DialogScript", "".join(ds[:after + 1]) + inject + "".join(ds[after + 1:]))

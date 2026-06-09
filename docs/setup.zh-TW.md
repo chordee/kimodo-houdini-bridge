@@ -115,7 +115,8 @@ repo 已附上建好的 HDA 於 `hda/`,在 Houdini 安裝即可
    input 1 = Capture Pose、input 2 = Animated Pose。
 
 > **Constraints(選用):** 想引導動作命中空間目標,可提供 [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
-> JSON(**Constraints File** / **Constraints JSON**),或把曲線/點接到節點輸入來授權 root 路徑
+> JSON(**Constraints File** / **Constraints JSON**)、把曲線/點接到 input 0 授權 root 路徑,
+> 或擺好節點骨架接到 input 1 授權 full-body / end-effector 約束
 > —— 見 [hda/README.zh-TW.md](../hda/README.zh-TW.md#constraints選用)。
 >
 > 若修改了 cook 腳本,可重建 HDA:

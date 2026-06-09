@@ -131,6 +131,8 @@ try:
         cfile = node.parm("constraints_file").eval().strip()
         raw = open(cfile, encoding="utf-8").read() if cfile else ""
     constraints = json.loads(raw) if raw else None
+    if constraints is not None and not isinstance(constraints, list):
+        raise ValueError("Constraints must be a JSON list of constraint dicts.")
 
     # Optional input geometry -> a root2d constraint. Houdini world XZ maps 1:1 to
     # Kimodo's smooth_root_2d (same Y-up metric space the node outputs). Points with

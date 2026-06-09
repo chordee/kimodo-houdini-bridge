@@ -114,6 +114,10 @@ repo 已附上建好的 HDA 於 `hda/`,在 Houdini 安裝即可
 4. 要變形身體:加一個 **`kinefx::jointdeform`**,接 input 0 = Rest Geometry、
    input 1 = Capture Pose、input 2 = Animated Pose。
 
+> **Constraints(選用):** 想引導動作命中空間目標,可透過節點的 **Constraints File** /
+> **Constraints JSON** 參數提供 [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
+> JSON —— 見 [hda/README.zh-TW.md](../hda/README.zh-TW.md#constraints選用)。
+
 > 若修改了 cook 腳本,可重建 HDA:
 > `hython scripts/build_skin.py` → `hython scripts/create_hda.py` →
 > `hython scripts/_add_help.py` —— 見 [hda/README.md](../hda/README.md)。

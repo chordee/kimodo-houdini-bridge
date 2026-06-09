@@ -118,20 +118,28 @@ _cook()
 """
 
 _GENERATE_CB = r"""
-import threading, time, requests, hou
+import json, threading, time, requests, hou
 
 node         = kwargs["node"]
 url          = node.parm("server_url").eval().rstrip("/")
 download_dir = node.parm("download_dir").eval()
 
 try:
+    # Optional Kimodo constraints: the inline JSON wins; otherwise read the file.
+    raw = node.parm("constraints_json").eval().strip()
+    if not raw:
+        cfile = node.parm("constraints_file").eval().strip()
+        raw = open(cfile, encoding="utf-8").read() if cfile else ""
+    constraints = json.loads(raw) if raw else None
+
     resp = requests.post(
         f"{url}/generate",
         json={
-            "prompt":   node.parm("prompt").eval(),
-            "duration": node.parm("duration").eval(),
-            "model":    node.parm("model").evalAsString(),
-            "force":    bool(node.parm("force").eval()),
+            "prompt":      node.parm("prompt").eval(),
+            "duration":    node.parm("duration").eval(),
+            "model":       node.parm("model").evalAsString(),
+            "force":       bool(node.parm("force").eval()),
+            "constraints": constraints,
         },
         timeout=30,
     )
@@ -386,6 +394,23 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
         "force", "Force Regenerate",
         default_value=False,
         help="Bypass the server cache and re-run inference even if a matching clip exists.",
+    ))
+    ptg.append(hou.SeparatorParmTemplate("sep_constraints"))
+    ptg.append(hou.StringParmTemplate(
+        "constraints_file", "Constraints File", 1,
+        default_value=("",),
+        string_type=hou.stringParmType.FileReference,
+        file_type=hou.fileType.Any,
+        tags={"filechooser_pattern": "*.json"},
+        help="Optional Kimodo constraints JSON (e.g. exported from the Kimodo demo). "
+             "Ignored when Constraints JSON below is non-empty.",
+    ))
+    ptg.append(hou.StringParmTemplate(
+        "constraints_json", "Constraints JSON", 1,
+        default_value=("",),
+        tags={"editor": "1"},
+        help="Optional inline Kimodo constraints JSON (a list of constraint dicts). "
+             "Takes precedence over Constraints File.",
     ))
     ptg.append(hou.ButtonParmTemplate(
         "generate", "Generate",

@@ -126,6 +126,11 @@ Drop a **`kimodo_motion`** node in a SOP network:
 4. To deform the body, add a **`kinefx::jointdeform`** and wire input 0 = Rest Geometry,
    input 1 = Capture Pose, input 2 = Animated Pose.
 
+> **Constraints (optional):** to steer the motion toward spatial targets, supply
+> [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
+> JSON via the node's **Constraints File** / **Constraints JSON** parameters — see
+> [hda/README.md](../hda/README.md#constraints-optional).
+
 > Developers who edit the cook scripts can rebuild the HDA:
 > `hython scripts/build_skin.py` → `hython scripts/create_hda.py` →
 > `hython scripts/_add_help.py` — see [hda/README.md](../hda/README.md#rebuilding-the-hda).

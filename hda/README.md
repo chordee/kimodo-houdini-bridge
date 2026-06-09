@@ -47,6 +47,8 @@ the bind pose at rest. (output 0 also drives a **Rig Pose / Bone Deform** workfl
 | Duration (s) | `3.0` | Length of the clip in seconds. At 30 fps, 3 s = 90 frames. |
 | Model | `Kimodo-SOMA-RP-v1.1` | Kimodo model variant. `RP` conditions on a rest pose; `SEED` uses a fixed seed for reproducibility. |
 | Force Regenerate | `off` | Bypass the server cache and re-run inference even if a matching clip exists. |
+| Constraints File | _(empty)_ | Optional [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html) JSON file (`*.json`). See [Constraints](#constraints-optional). |
+| Constraints JSON | _(empty)_ | Optional inline constraints JSON; takes precedence over Constraints File. |
 | **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. A background thread polls for progress, so Houdini stays responsive. When done, the NPZ is downloaded to **Download Dir**, **NPZ Path** is set, and the node recooks. |
 | **Cancel** | — | Cancels the job. A resident server can't interrupt an already-running generation — Cancel stops a queued job or discards the result. |
 | Status | _(read-only)_ | Live job state: `Queued`, `Running... (Ns)`, `Downloading...`, `Done (Ns)`, `Failed`, `Cancelled`. |
@@ -68,11 +70,32 @@ The node only needs **`posed_joints`** and **`global_rot_mats`** (SOMA77 joint o
 rebuild the skeleton. Any compatible NPZ works regardless of how it was produced — set
 **NPZ Path** to it. **Download Dir** is only used by **Generate**.
 
+### Constraints (optional)
+
+[Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
+steer the generated motion to hit spatial targets: a root 2D path or waypoints,
+full-body keyframes, or end-effector (hand/foot) targets. Supply a JSON **list of
+constraint dicts** — point **Constraints File** at a `*.json` (e.g. one exported from
+the Kimodo demo) or paste it into **Constraints JSON** (which wins when non-empty).
+Leave both empty for unconstrained generation.
+
+Targets use Kimodo's coordinate space: **Y-up, metres, +Z forward, root at XZ = (0, 0)
+on frame 0** — the same world space this node outputs. The simplest type is a `root2d`
+waypoint set (`frame_indices` + `[x, z]` pairs):
+
+```json
+[{"type": "root2d", "frame_indices": [0, 90], "smooth_root_2d": [[0, 0], [2, 1]]}]
+```
+
+Other types (`fullbody`, `left-hand`/`right-hand`/`left-foot`/`right-foot`) also need
+per-joint rotations; author them in the Kimodo demo and export the JSON. Constraints are
+part of the cache key, so a new constraint set triggers a fresh generation.
+
 ### Caching
 
-The server caches results by a SHA-256 hash of `prompt + duration + model`. Re-running with
-identical settings returns instantly (Status shows `Done (cached)`); enable **Force
-Regenerate** to bypass it.
+The server caches results by a SHA-256 hash of `prompt + duration + model + constraints`.
+Re-running with identical settings returns instantly (Status shows `Done (cached)`); enable
+**Force Regenerate** to bypass it.
 
 ### Prerequisites
 

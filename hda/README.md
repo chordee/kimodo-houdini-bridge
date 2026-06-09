@@ -75,9 +75,14 @@ rebuild the skeleton. Any compatible NPZ works regardless of how it was produced
 [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
 steer the generated motion to hit spatial targets: a root 2D path or waypoints,
 full-body keyframes, or end-effector (hand/foot) targets. Supply a JSON **list of
-constraint dicts** — point **Constraints File** at a `*.json` (e.g. one exported from
-the Kimodo demo) or paste it into **Constraints JSON** (which wins when non-empty).
-Leave both empty for unconstrained generation.
+constraint dicts**, where each dict's `type` field selects the constraint kind.
+
+**Constraints File** and **Constraints JSON** are not constraint types — they are two
+ways to provide that *same* JSON payload: point **Constraints File** at a `*.json`
+(e.g. one exported from the Kimodo demo), or paste the JSON into **Constraints JSON**.
+The inline JSON wins when non-empty; otherwise the file is read. One list can hold
+several constraints of different types. Leave both empty for unconstrained generation.
+(Input geometry, if connected, adds a `root2d` on top — see below.)
 
 Targets use Kimodo's coordinate space: **Y-up, metres, +Z forward, root at XZ = (0, 0)
 on frame 0** — the same world space this node outputs. The simplest type is a `root2d`

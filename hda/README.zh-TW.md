@@ -70,9 +70,13 @@ NPZ 都能用,不管怎麼產生的——把 **NPZ Path** 指過去即可。**Do
 
 [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
 可引導生成的動作命中空間目標:root 2D 路徑或 waypoint、full-body keyframe、或
-end-effector(手/腳)目標。提供一個 JSON **constraint dict 列表**——把 **Constraints File**
-指向 `*.json`(例如 Kimodo demo 匯出的),或貼進 **Constraints JSON**(非空時優先)。兩者都
-留空即為無約束生成。
+end-effector(手/腳)目標。提供一個 JSON **constraint dict 列表**,每個 dict 的 `type` 欄位
+決定約束種類。
+
+**Constraints File 與 Constraints JSON 不是約束種類**,而是提供**同一份** JSON 的兩種來源:
+把 **Constraints File** 指向 `*.json`(例如 Kimodo demo 匯出的),或把 JSON 貼進
+**Constraints JSON**。內嵌 JSON 非空時優先,否則讀檔案。一個列表可同時含多種類型的約束。
+兩者都留空即為無約束生成。(若有接輸入幾何,會再加一個 `root2d` —— 見下方。)
 
 目標採 Kimodo 座標系:**Y-up、公尺、+Z 朝前、root 於 frame 0 在 XZ = (0, 0)**——與本節點
 輸出的世界空間相同。最單純的是 `root2d` waypoint(`frame_indices` + `[x, z]` 配對):

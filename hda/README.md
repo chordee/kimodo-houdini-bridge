@@ -37,6 +37,12 @@ input 0 = **Rest Geometry** (output 2), input 1 = **Capture Pose** (output 1),
 input 2 = **Animated Pose** (output 0). The mesh follows the animation and returns to
 the bind pose at rest. (output 0 also drives a **Rig Pose / Bone Deform** workflow directly.)
 
+### Input (optional)
+
+The node has one **optional input**, *Root Path / Waypoints*. Connect a curve or points
+to author a root-path constraint from geometry instead of JSON — see
+[Constraints](#constraints-optional). Leave it unconnected for normal use.
+
 ### Parameters
 
 | Parameter | Default | Description |

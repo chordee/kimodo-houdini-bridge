@@ -34,6 +34,11 @@ input 0 = **Rest Geometry**(輸出 2)、input 1 = **Capture Pose**(輸出 1)、
 input 2 = **Animated Pose**(輸出 0)。mesh 會跟著動畫變形,rest 時回到 bind。
 (輸出 0 也可直接接 Rig Pose / Bone Deform 流程。)
 
+### 輸入（選用）
+
+節點有一個**選用輸入** *Root Path / Waypoints*。接一條曲線或一組點,即可用幾何授權
+root 路徑約束,不必寫 JSON —— 見 [Constraints](#constraints選用)。一般使用時不接即可。
+
 ### 參數說明
 
 | 參數 | 預設 | 說明 |

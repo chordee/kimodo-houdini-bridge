@@ -63,6 +63,14 @@ Constraints File / Constraints JSON:
     }}}
     Leave both empty for unconstrained generation.
 
+:input 0 — Root Path / Waypoints (optional):
+    Connect geometry to build a `root2d` constraint without writing JSON. Each
+    point's world XZ becomes a `smooth_root_2d` target (Houdini XZ maps 1:1 to
+    Kimodo's space). Points carrying an integer `frame` point attribute become
+    sparse waypoints at those frames (you control the timing); otherwise the points
+    (in order — e.g. a resampled polyline) are spread evenly across the clip as a
+    denser path. The result is appended to any JSON constraints above.
+
 Generate:
     Submits the prompt to `<API Server URL>/generate` and returns immediately with
     a job ID. A background thread polls for progress, so Houdini stays responsive.

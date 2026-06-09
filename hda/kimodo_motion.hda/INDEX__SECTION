@@ -6,10 +6,10 @@ Table:        Sop
 License:      
 Extra:        visibleoutputs=4 
 User:         
-Inputs:       0 to 0
+Inputs:       0 to 1
 Outputs:      4
 Subnet:       true
 Python:       false
 Empty:        false
-Modified:     Tue Jun  9 20:41:07 2026
+Modified:     Tue Jun  9 21:10:06 2026
 

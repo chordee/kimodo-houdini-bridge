@@ -132,6 +132,35 @@ try:
         raw = open(cfile, encoding="utf-8").read() if cfile else ""
     constraints = json.loads(raw) if raw else None
 
+    # Optional input geometry -> a root2d constraint. Houdini world XZ maps 1:1 to
+    # Kimodo's smooth_root_2d (same Y-up metric space the node outputs). Points with
+    # a `frame` int attribute become sparse waypoints (you control the timing);
+    # otherwise the points (in order, e.g. a polyline) are spread evenly over the
+    # clip as a denser path.
+    ins = node.inputs()
+    if ins and ins[0] is not None:
+        geo = node.inputGeometry(0)
+        pts = geo.points()
+        if pts:
+            xz = [[float(p.position()[0]), float(p.position()[2])] for p in pts]
+            if geo.findPointAttrib("frame") is not None:
+                frames = [int(p.attribValue("frame")) for p in pts]
+            elif len(pts) > 1:
+                # SOMA models run at 30 fps: num_frames = int(duration * 30)
+                T = max(2, int(node.parm("duration").eval() * 30))
+                frames = [int(round(i * (T - 1) / (len(pts) - 1))) for i in range(len(pts))]
+            else:
+                frames = [0]
+            # dedup by frame (keep first), sort by frame
+            by_frame = {}
+            for f, c in zip(frames, xz):
+                by_frame.setdefault(f, c)
+            items = sorted(by_frame.items())
+            root2d = {"type": "root2d",
+                      "frame_indices": [f for f, _ in items],
+                      "smooth_root_2d": [c for _, c in items]}
+            constraints = (constraints or []) + [root2d]
+
     resp = requests.post(
         f"{url}/generate",
         json={
@@ -352,7 +381,7 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
         hda_file_name=hda_path,
         description=description,
         min_num_inputs=0,
-        max_num_inputs=0,
+        max_num_inputs=1,   # optional input: geometry -> a root2d constraint (read by Generate)
         version="1.0",
     )
     hda_def = hda_node.type().definition()
@@ -456,6 +485,10 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
     labels = (["Animated Pose", "Capture Pose", "Rest Geometry", "T-Pose"]
               if skin_sections else ["Animated Pose", "T-Pose"])
     ds = hda_def.sections()["DialogScript"].contents().splitlines(keepends=True)
+    # name the (optional) input connector
+    ds = ['    inputlabel\t1\t"Root Path / Waypoints (opt)"\n'
+          if line.lstrip().startswith(("inputlabel\t1", "inputlabel 1")) else line
+          for line in ds]
     after = max(i for i, line in enumerate(ds) if line.lstrip().startswith("inputlabel"))
     inject = "".join('    outputlabel\t%d\t"%s"\n' % (i + 1, lbl) for i, lbl in enumerate(labels))
     hda_def.addSection("DialogScript", "".join(ds[:after + 1]) + inject + "".join(ds[after + 1:]))

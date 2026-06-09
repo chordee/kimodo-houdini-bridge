@@ -91,6 +91,14 @@ Other types (`fullbody`, `left-hand`/`right-hand`/`left-foot`/`right-foot`) also
 per-joint rotations; author them in the Kimodo demo and export the JSON. Constraints are
 part of the cache key, so a new constraint set triggers a fresh generation.
 
+**Authoring a `root2d` from geometry (input 0):** instead of writing JSON, connect
+geometry to the node's optional input. Each point's world XZ becomes a `smooth_root_2d`
+target (Houdini XZ maps 1:1 to Kimodo's space — you can trace over the node's own output
+trajectory). Points carrying an integer `frame` point attribute become **sparse waypoints**
+at those frames (you control the timing); otherwise the points, in order (e.g. a resampled
+polyline), are spread evenly across the clip as a **denser path**. The geometry-derived
+`root2d` is appended to any JSON constraints above.
+
 ### Caching
 
 The server caches results by a SHA-256 hash of `prompt + duration + model + constraints`.

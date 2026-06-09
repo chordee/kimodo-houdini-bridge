@@ -84,6 +84,12 @@ end-effector(手/腳)目標。提供一個 JSON **constraint dict 列表**——
 其他類型(`fullbody`、`left-hand`/`right-hand`/`left-foot`/`right-foot`)另需各關節旋轉;
 建議在 Kimodo demo 內授權後匯出 JSON。constraints 也納入快取鍵,新的 constraint 會觸發重新生成。
 
+**用幾何授權 `root2d`(input 0):** 不想寫 JSON 時,可把幾何接到節點的選用輸入。每個點的
+世界 XZ 會變成一個 `smooth_root_2d` 目標(Houdini XZ 與 Kimodo 空間 1:1 對應 —— 可直接描節點
+自己輸出的軌跡)。點上若帶整數 `frame` 屬性 → 變成那些幀的**稀疏 waypoint**(由你控制時機);
+否則點依序(例如重取樣後的 polyline)均勻分布到整段片段,當成**較密的路徑**。由幾何產生的
+`root2d` 會接在上面的 JSON constraints 之後。
+
 ### 快取
 
 伺服器以 `prompt + duration + model + constraints` 的 SHA-256 雜湊為鍵快取。相同設定再跑會

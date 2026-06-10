@@ -145,7 +145,16 @@
         label   "Pose Keyframes"
         type    string
         default { "" }
-        help    "Frame numbers to sample the input-1 skeleton at, e.g. `0 45 89`. Empty = no pose constraint. Pose the node's Capture Pose output and wire it to input 1."
+        help    "Frame numbers to sample the input-1 skeleton at, e.g. `0 45 89`. Empty = no pose constraint."
+    }
+    parm {
+        name    "make_pose_rig"
+        label   "Create Pose Rig"
+        type    button
+        default { "0" }
+        help    "Drop an independent A-pose rig (+ Rig Pose) into the network and wire it to input 1. Pose / keyframe it to author full-body / end-effector constraints."
+        parmtag { "script_callback" "\nimport hou\n\nnode = kwargs[\"node\"]\nparent = node.parent()\nloader = (\n    \"import os, base64, tempfile, hou\\n\"\n    \"hda = hou.nodeType(hou.sopNodeTypeCategory(), %r).definition()\\n\"\n    \"data = base64.b64decode(hda.sections()['apose.bgeo.sc'].contents())\\n\"\n    \"fd, p = tempfile.mkstemp(prefix='kimodo_', suffix='_apose.bgeo.sc'); os.close(fd)\\n\"\n    \"try:\\n\"\n    \"    open(p, 'wb').write(data)\\n\"\n    \"    hou.pwd().geometry().loadFromFile(p)\\n\"\n    \"finally:\\n\"\n    \"    try: os.remove(p)\\n\"\n    \"    except OSError: pass\\n\"\n) % node.type().name()\n\nrig = parent.createNode(\"python\", \"kimodo_pose_rig\")\nrig.parm(\"python\").set(loader)\ntry:\n    tip = parent.createNode(\"kinefx::rigpose\", \"pose_keyframes\")\n    tip.setInput(0, rig)\nexcept hou.OperationFailed:\n    tip = rig\nrig.moveToGoodPosition()\nif tip is not rig:\n    tip.moveToGoodPosition()\nwired = node.input(1) is None\nif wired:\n    node.setInput(1, tip)\ntip.setCurrent(True, clear_all_selected=True)\nhou.ui.displayMessage(\n    \"Created an independent A-pose rig%s.\\n\\nPose / keyframe it, set Pose Keyframes, choose \"\n    \"Full-Body or End-Effector, then Generate.%s\" % (\n        \" + Rig Pose\" if tip is not rig else \"\",\n        \"\" if wired else \"\\n\\nWire it into this node's input 1.\",\n    ),\n    title=\"Kimodo\",\n)\n" }
+        parmtag { "script_callback_language" "python" }
     }
     parm {
         name    "generate"

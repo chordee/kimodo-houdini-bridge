@@ -332,6 +332,51 @@ else:
         node.parm("job_id").set("")
 """
 
+# Build a standalone A-pose rig to pose for full-body / end-effector constraints.
+# It loads the HDA's embedded apose section by *type name*, so it's independent of this
+# node's outputs — no output-into-its-own-input loop. Wired into input 1 ready to pose.
+_MAKE_RIG_CB = r"""
+import hou
+
+node = kwargs["node"]
+parent = node.parent()
+loader = (
+    "import os, base64, tempfile, hou\n"
+    "hda = hou.nodeType(hou.sopNodeTypeCategory(), %r).definition()\n"
+    "data = base64.b64decode(hda.sections()['apose.bgeo.sc'].contents())\n"
+    "fd, p = tempfile.mkstemp(prefix='kimodo_', suffix='_apose.bgeo.sc'); os.close(fd)\n"
+    "try:\n"
+    "    open(p, 'wb').write(data)\n"
+    "    hou.pwd().geometry().loadFromFile(p)\n"
+    "finally:\n"
+    "    try: os.remove(p)\n"
+    "    except OSError: pass\n"
+) % node.type().name()
+
+rig = parent.createNode("python", "kimodo_pose_rig")
+rig.parm("python").set(loader)
+try:
+    tip = parent.createNode("kinefx::rigpose", "pose_keyframes")
+    tip.setInput(0, rig)
+except hou.OperationFailed:
+    tip = rig
+rig.moveToGoodPosition()
+if tip is not rig:
+    tip.moveToGoodPosition()
+wired = node.input(1) is None
+if wired:
+    node.setInput(1, tip)
+tip.setCurrent(True, clear_all_selected=True)
+hou.ui.displayMessage(
+    "Created an independent A-pose rig%s.\n\nPose / keyframe it, set Pose Keyframes, choose "
+    "Full-Body or End-Effector, then Generate.%s" % (
+        " + Rig Pose" if tip is not rig else "",
+        "" if wired else "\n\nWire it into this node's input 1.",
+    ),
+    title="Kimodo",
+)
+"""
+
 _REST_SCRIPT = r"""
 import hou
 
@@ -515,7 +560,14 @@ def build_hda(node_name, description, hda_path, generate_cb, skin_sections=None)
         "pose_keyframes", "Pose Keyframes", 1,
         default_value=("",),
         help="Frame numbers to sample the input-1 skeleton at, e.g. `0 45 89`. Empty = no "
-             "pose constraint. Pose the node's Capture Pose output and wire it to input 1.",
+             "pose constraint.",
+    ))
+    ptg.append(hou.ButtonParmTemplate(
+        "make_pose_rig", "Create Pose Rig",
+        script_callback=_MAKE_RIG_CB,
+        script_callback_language=hou.scriptLanguage.Python,
+        help="Drop an independent A-pose rig (+ Rig Pose) into the network and wire it to "
+             "input 1. Pose / keyframe it to author full-body / end-effector constraints.",
     ))
     ptg.append(hou.ButtonParmTemplate(
         "generate", "Generate",

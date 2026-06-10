@@ -129,7 +129,7 @@ Drop a **`kimodo_motion`** node in a SOP network:
 > **Constraints (optional):** to steer the motion toward spatial targets, supply
 > [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html)
 > as JSON (**Constraints File** / **Constraints JSON**), connect a curve/points to input 0
-> for a root path, or pose the node's skeleton and wire it to input 1 for full-body /
+> for a root path, or use **Create Pose Rig** to pose a skeleton (input 1) for full-body /
 > end-effector constraints — see [hda/README.md](../hda/README.md#constraints-optional).
 >
 > Developers who edit the cook scripts can rebuild the HDA:

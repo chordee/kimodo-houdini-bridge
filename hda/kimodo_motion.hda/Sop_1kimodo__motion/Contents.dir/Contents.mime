@@ -59,8 +59,9 @@ Content-Type: text/plain
 Content-Disposition: attachment; filename="hdaroot.inp"
 Content-Type: text/plain
 
-1
+2
 0 13.696400000000001 0 2 0 __NO_OWNER_NETWORK_BOX__ "FROMOUTPUT"
+1 13.696400000000001 1.1294999999999999 2 0 __NO_OWNER_NETWORK_BOX__ "FROMOUTPUT"
 
 --HOUDINIMIMEBOUNDARY0xD3ADD339-0x00000F49-0x56B122C9-0x00000001HOUDINIMIMEBOUNDARY
 Content-Disposition: attachment; filename="hdaroot/gen_sop.init"

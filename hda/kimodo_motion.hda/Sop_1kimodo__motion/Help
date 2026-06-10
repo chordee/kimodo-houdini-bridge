@@ -71,6 +71,17 @@ Constraints File / Constraints JSON:
     (in order — e.g. a resampled polyline) are spread evenly across the clip as a
     denser path. The result is appended to any JSON constraints above.
 
+Create Pose Rig / Pose Constraint / Pose Keyframes (input 1):
+    Author full-body or end-effector constraints by posing a skeleton instead of
+    writing JSON. Press __Create Pose Rig__: it drops an independent A-pose rig (+ a
+    KineFX Rig Pose) into the network and wires it to __input 1__ — no wiring from
+    this node's own outputs. Pose / keyframe that rig, then list the frames to sample
+    in __Pose Keyframes__ (e.g. `0 45 89`); the posed joints at each are converted to
+    a Kimodo constraint. __Pose Constraint__ chooses Full-Body (whole skeleton) or
+    End-Effector — for the latter, toggle which of Left/Right Hand/Foot to pin (the
+    rest of the body stays free). The rig must be one this button created (it carries
+    the rotation convention the conversion inverts). Empty __Pose Keyframes__ = off.
+
 Generate:
     Submits the prompt to `<API Server URL>/generate` and returns immediately with
     a job ID. A background thread polls for progress, so Houdini stays responsive.

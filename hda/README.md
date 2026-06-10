@@ -37,11 +37,15 @@ input 0 = **Rest Geometry** (output 2), input 1 = **Capture Pose** (output 1),
 input 2 = **Animated Pose** (output 0). The mesh follows the animation and returns to
 the bind pose at rest. (output 0 also drives a **Rig Pose / Bone Deform** workflow directly.)
 
-### Input (optional)
+### Inputs (optional)
 
-The node has one **optional input**, *Root Path / Waypoints*. Connect a curve or points
-to author a root-path constraint from geometry instead of JSON — see
-[Constraints](#constraints-optional). Leave it unconnected for normal use.
+The node has two **optional inputs**, both for authoring constraints from geometry
+instead of JSON (see [Constraints](#constraints-optional)); leave them unconnected for
+normal use:
+
+- **Input 0 — Root Path / Waypoints**: a curve or points → a `root2d` constraint.
+- **Input 1 — Pose Keyframes (skeleton)**: a posed SOMA77 skeleton → a full-body or
+  end-effector constraint (see [Pose constraints](#pose-constraints-input-1)).
 
 ### Parameters
 
@@ -55,6 +59,10 @@ to author a root-path constraint from geometry instead of JSON — see
 | Force Regenerate | `off` | Bypass the server cache and re-run inference even if a matching clip exists. |
 | Constraints File | _(empty)_ | Optional [Kimodo constraints](https://research.nvidia.com/labs/sil/projects/kimodo/docs/key_concepts/constraints.html) JSON file (`*.json`). See [Constraints](#constraints-optional). |
 | Constraints JSON | _(empty)_ | Optional inline constraints JSON; takes precedence over Constraints File. |
+| Pose Constraint | `Full-Body` | How to use a posed skeleton on input 1: `Full-Body` (whole skeleton) or `End-Effector`. See [Pose constraints](#pose-constraints-input-1). |
+| Left/Right Hand/Foot | Right Hand | For `End-Effector`: which joints to pin (the rest of the body stays free). |
+| **Create Pose Rig** | — | Drops an independent A-pose rig (+ Rig Pose) into the network and wires it to input 1, ready to pose. |
+| Pose Keyframes | _(empty)_ | Frames to sample input 1 at, e.g. `0 45 89`. Empty = no pose constraint. |
 | **Generate** | — | Submits the prompt to `<API Server URL>/generate` and returns immediately with a job ID. A background thread polls for progress, so Houdini stays responsive. When done, the NPZ is downloaded to **Download Dir**, **NPZ Path** is set, and the node recooks. |
 | **Cancel** | — | Cancels the job. A resident server can't interrupt an already-running generation — Cancel stops a queued job or discards the result. |
 | Status | _(read-only)_ | Live job state: `Queued`, `Running... (Ns)`, `Downloading...`, `Done (Ns)`, `Failed`, `Cancelled`. |
@@ -109,6 +117,25 @@ trajectory). Points carrying an integer `frame` point attribute become **sparse 
 at those frames (you control the timing); otherwise the points, in order (e.g. a resampled
 polyline), are spread evenly across the clip as a **denser path**. The geometry-derived
 `root2d` is appended to any JSON constraints above.
+
+#### Pose constraints (input 1)
+
+Author **full-body** or **end-effector** constraints by posing a skeleton, instead of
+writing the per-joint JSON by hand:
+
+1. Press **Create Pose Rig**. It drops an **independent A-pose rig** (a `kimodo_pose_rig`
+   source + a KineFX **Rig Pose**) into the network and wires it into the node's
+   **input 1** — nothing is wired from this node's own outputs, so there's no loop.
+2. Pose / keyframe that rig (on the Rig Pose) to define the poses you want to pin.
+3. Set **Pose Keyframes** to the frames to sample (e.g. `0 45 89`) and choose **Pose
+   Constraint** = Full-Body or End-Effector (for the latter, toggle which Hand/Foot to
+   pin — the rest of the body stays free).
+
+At each keyframe the node reads the posed joints' world positions and rotations and sends
+them to the server, which builds a `FullBodyConstraintSet` / `EndEffectorConstraintSet`
+directly (the same path Kimodo's demo uses). The conversion inverts the node's own forward
+transform, so the rig **must be one Create Pose Rig produced** (it loads the same A-pose in
+the expected rotation convention); an arbitrary rig won't convert correctly.
 
 ### Caching
 

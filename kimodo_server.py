@@ -77,24 +77,36 @@ def _build_constraints(constraints, model) -> list:
     from kimodo.constraints import (
         load_constraints_lst, FullBodyConstraintSet, EndEffectorConstraintSet,
     )
-    device = model.skeleton.device
+    skeleton = model.skeleton
+    device = skeleton.device
+    # The HDA sends SOMA77 (77-joint) global data, but a SOMA-RP model constrains on
+    # its smaller model skeleton (e.g. SOMASkeleton30). Map 77 -> the model joint set/
+    # order the same way Kimodo's demo does (get_skel_slice against the 77 skeleton).
+    src77 = getattr(skeleton, "somaskel77", None)
+    skel_slice = (
+        skeleton.get_skel_slice(src77)
+        if src77 is not None and getattr(src77, "nbjoints", None) != skeleton.nbjoints
+        else None
+    )
     std, extra = [], []
     for c in constraints:
         t = c.get("type")
         if t in ("fullbody-global", "ee-global"):
             pos = torch.tensor(c["global_joints_positions"], dtype=torch.float32, device=device)
             rot = torch.tensor(c["global_joints_rots"], dtype=torch.float32, device=device)
+            if skel_slice is not None and pos.shape[1] != skeleton.nbjoints:
+                pos, rot = pos[:, skel_slice], rot[:, skel_slice]
             fi = torch.tensor(c["frame_indices"])
             sr = c.get("smooth_root_2d")
             sr = torch.tensor(sr, dtype=torch.float32, device=device) if sr else None
             if t == "fullbody-global":
-                extra.append(FullBodyConstraintSet(model.skeleton, fi, pos, rot, smooth_root_2d=sr))
+                extra.append(FullBodyConstraintSet(skeleton, fi, pos, rot, smooth_root_2d=sr))
             else:
                 extra.append(EndEffectorConstraintSet(
-                    model.skeleton, fi, pos, rot, sr, joint_names=c["joint_names"]))
+                    skeleton, fi, pos, rot, sr, joint_names=c["joint_names"]))
         else:
             std.append(c)
-    return (load_constraints_lst(std, model.skeleton) if std else []) + extra
+    return (load_constraints_lst(std, skeleton) if std else []) + extra
 
 
 def _infer_resident(req: "GenerateRequest", out_path: pathlib.Path) -> None:

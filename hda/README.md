@@ -27,7 +27,7 @@ parent-child joint pair with a polyline primitive.
 
 | # | Label | Content |
 |---|-------|---------|
-| 0 | **Animated Pose** | Per-frame animated skeleton. `name`, `path`, `parent_id`, `transform` (float[9] world rotation), `localtransform` (float[16] local 4×4). |
+| 0 | **Animated Pose** | Per-frame animated skeleton. `name`, `path`, `parent_id`, `transform` (float[9] world rotation), `localtransform` (float[16] local 4×4), `contact` (int 0/1 — 1 on a foot joint while it is planted, 0 elsewhere). |
 | 1 | **Capture Pose** | The A-pose rest skeleton the body mesh is bound to (feet on floor). `name`, `transform`. |
 | 2 | **Rest Geometry** | The SOMA77 body mesh in its bind pose, with a KineFX `boneCapture` attribute (weights + bind from Kimodo's skinning). |
 | 3 | **T-Pose** | A T-pose skeleton (`name`, `transform`) for reference / retargeting. |

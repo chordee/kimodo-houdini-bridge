@@ -24,7 +24,7 @@ column-vector 轉置)。骨架以 polyline 連接父子關節。
 
 | # | 標籤 | 內容 |
 |---|------|------|
-| 0 | **Animated Pose** | 逐幀動畫骨架。`name`、`path`、`parent_id`、`transform`(float[9] 世界旋轉)、`localtransform`(float[16] 局部 4×4)。 |
+| 0 | **Animated Pose** | 逐幀動畫骨架。`name`、`path`、`parent_id`、`transform`(float[9] 世界旋轉)、`localtransform`(float[16] 局部 4×4)、`contact`(int 0/1,腳關節著地時為 1,其餘為 0)。 |
 | 1 | **Capture Pose** | mesh 綁定的 A-pose rest 骨架(腳在地面)。`name`、`transform`。 |
 | 2 | **Rest Geometry** | SOMA77 身體 mesh 的 bind 姿勢,帶 KineFX `boneCapture` 屬性(權重 + bind 來自 Kimodo 蒙皮)。 |
 | 3 | **T-Pose** | T-pose 骨架(`name`、`transform`),供參考 / retarget。 |

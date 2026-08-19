@@ -97,7 +97,9 @@ also consumes them internally to clean up foot skating before the motion is writ
 
 Contacts are detected on **two joints per side** — the ankle and the toe base. A
 SOMA77 NPZ reports six channels, where `LeftToeEnd` / `RightToeEnd` are copies of the
-matching `ToeBase` channel rather than independent detections:
+matching `ToeBase` channel rather than independent detections (a four-channel NPZ —
+Kimodo's internal representation, without the SOMA77 expansion — is read too; see
+below):
 
 | Channel | Joint | |
 |---|---|---|
@@ -108,10 +110,11 @@ matching `ToeBase` channel rather than independent detections:
 | 4 | `RightToeBase` | detected |
 | 5 | `RightToeEnd` | copy of channel 4 |
 
-All six joints get the attribute so the foot chain is fully covered, but treat the
-two `ToeEnd` joints as redundant when driving a foot lock. (A four-channel NPZ —
-Kimodo's internal representation, without the SOMA77 expansion — is also read; there
-the two `ToeEnd` joints get no contact value.)
+Every joint carries the attribute either way — it is written on all 77 points, not
+only the feet — so treat the two `ToeEnd` joints as redundant when driving a foot
+lock. With a **four-channel** NPZ the two `ToeEnd` joints are not covered by any
+channel and stay `0` for the whole clip, which is indistinguishable from "never
+planted"; use `ToeBase` in that case.
 
 Typical uses: locking a foot in place while `contact == 1` to kill foot skating, or
 detecting the `0` → `1` transition as a footstep event to drive dust, decals or audio

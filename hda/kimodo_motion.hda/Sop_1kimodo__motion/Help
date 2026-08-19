@@ -113,8 +113,9 @@ row-vector convention (transposed from Kimodo's matrices).
     When the NPZ carries Kimodo's foot-contact labels, an `int` attribute
     `contact` is added: 1 on a foot joint while it is planted that frame, 0
     everywhere else. Contacts are detected on the ankle and toe base of each
-    side; the two ToeEnd joints repeat their ToeBase value, so treat them as
-    redundant. NPZs without the labels get no `contact` attribute at all.
+    side. In a 6-channel SOMA77 NPZ the two ToeEnd joints repeat their ToeBase
+    value, so treat them as redundant; in a 4-channel NPZ they are not covered
+    at all and stay 0. NPZs without the labels get no `contact` attribute.
 
 :output 1 — Capture Pose:
     The A-pose rest skeleton the mesh is bound to (feet on floor). `name` +

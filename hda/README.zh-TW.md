@@ -89,7 +89,8 @@ NPZ 帶有 `foot_contacts` 時,輸出 0 會多一個 `int` 點屬性 **`contact`
 推。Kimodo 內部也會用它在輸出動作前修正腳滑。
 
 接觸偵測只在**每側兩個關節**上進行——腳踝與腳趾根部。SOMA77 的 NPZ 會有六個通道,其中
-`LeftToeEnd` / `RightToeEnd` 是對應 `ToeBase` 通道的複製,並非獨立偵測:
+`LeftToeEnd` / `RightToeEnd` 是對應 `ToeBase` 通道的複製,並非獨立偵測(四通道的 NPZ ——
+Kimodo 內部表示,未經 SOMA77 展開——同樣讀得進來,見下方說明):
 
 | 通道 | 關節 | |
 |---|---|---|
@@ -100,9 +101,9 @@ NPZ 帶有 `foot_contacts` 時,輸出 0 會多一個 `int` 點屬性 **`contact`
 | 4 | `RightToeBase` | 獨立偵測 |
 | 5 | `RightToeEnd` | 複製自通道 4 |
 
-六個關節都會寫入屬性,讓整條腳部鏈完整覆蓋;但要驅動 foot lock 時,請把兩個 `ToeEnd` 視為
-冗餘資訊。(四通道的 NPZ ——Kimodo 內部表示,未經 SOMA77 展開——同樣讀得進來,此時兩個
-`ToeEnd` 關節不會有接觸值。)
+兩種情況下所有關節都會寫入屬性——是寫在全部 77 個點上,不只腳部——所以要驅動 foot lock
+時,請把兩個 `ToeEnd` 視為冗餘資訊。若是**四通道**的 NPZ,兩個 `ToeEnd` 沒有任何通道對應,
+整段動畫都會是 `0`,與「從未著地」無法區分;此時請改用 `ToeBase`。
 
 常見用途:在 `contact == 1` 期間鎖住腳部以消除腳滑,或偵測 `0` → `1` 的轉換作為腳步事件,
 用來驅動塵土、貼花或音效。
